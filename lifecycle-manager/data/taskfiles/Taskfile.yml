@@ -1,0 +1,194 @@
+# lifecycle-manager/Taskfile.yml
+version: '3'
+
+vars:
+  DATA_DIR: /workspace/data
+  SHARED_DIR: /workspace/shared
+  CACHE_DIR: /workspace/shared/.cache
+  DEPLOYMENT_FILE: /workspace/shared/deployment.yml
+  
+  # These will be read from deployment.yml during init
+  DEPLOYMENT_TYPE: '{{.DEPLOYMENT_TYPE | default "basekit"}}'
+
+includes:
+  # Infrastructure tasks (basekit, aws, azure, etc.)
+  infra:
+    taskfile: '{{.DATA_DIR}}/taskfiles/infra/{{.DEPLOYMENT_TYPE}}.yml'
+    optional: true
+    vars:
+      DATA_DIR: '{{.DATA_DIR}}'
+      SHARED_DIR: '{{.SHARED_DIR}}'
+      CACHE_DIR: '{{.CACHE_DIR}}'
+
+  # Onboarder tasks (MCM deployment)
+  onboarder:
+    taskfile: '{{.DATA_DIR}}/taskfiles/onboarder.yml'
+    vars:
+      DATA_DIR: '{{.DATA_DIR}}'
+      SHARED_DIR: '{{.SHARED_DIR}}'
+      CACHE_DIR: '{{.CACHE_DIR}}'
+
+  # OSMS tasks
+  osms:
+    taskfile: '{{.DATA_DIR}}/taskfiles/osms.yml'
+    vars:
+      DATA_DIR: '{{.DATA_DIR}}'
+      SHARED_DIR: '{{.SHARED_DIR}}'
+      CACHE_DIR: '{{.CACHE_DIR}}'
+
+tasks:
+  #============================================================================
+  # Initialization
+  #============================================================================
+  init:
+    desc: "Initialize deployment from deployment.yml"
+    cmds:
+      - echo "Initializing deployment..."
+      - ansible-playbook {{.DATA_DIR}}/playbooks/init_deployment.yml
+        -e deployment_file={{.DEPLOYMENT_FILE}}
+        -e output_dir={{.SHARED_DIR}}
+      - echo "✓ Initialization complete"
+
+  validate:
+    desc: "Validate deployment configuration"
+    cmds:
+      - echo "Validating deployment.yml..."
+      - python3 {{.DATA_DIR}}/scripts/validate_deployment.py {{.DEPLOYMENT_FILE}}
+
+  #============================================================================
+  # Infrastructure Deployment
+  #============================================================================
+  deploy-infra:
+    desc: "Deploy {{.DEPLOYMENT_TYPE}} infrastructure (VMs/network)"
+    cmds:
+      - task: infra:deploy-all
+
+  destroy-infra:
+    desc: "Destroy {{.DEPLOYMENT_TYPE}} infrastructure"
+    cmds:
+      - task: infra:destroy-all
+
+  #============================================================================
+  # Management Cluster Module (MCM) - via Onboarder
+  #============================================================================
+  deploy-mcm:
+    desc: "Deploy Management Cluster (Rancher, Harbor, Gitea, ArgoCD)"
+    cmds:
+      - echo "Deploying Management Cluster Module..."
+      - task: onboarder:deploy-mcm
+      - echo "✓ MCM deployment complete"
+
+  destroy-mcm:
+    desc: "Destroy Management Cluster"
+    cmds:
+      - task: onboarder:destroy-mcm
+
+  get-kubeconfig-mcm:
+    desc: "Retrieve MCM kubeconfig"
+    cmds:
+      - task: onboarder:get-kubeconfig
+
+  #============================================================================
+  # OpenSpace Management System (OSMS)
+  #============================================================================
+  deploy-osms:
+    desc: "Deploy OpenSpace Management System"
+    cmds:
+      - echo "Deploying OSMS..."
+      - task: osms:deploy
+      - echo "✓ OSMS deployment complete"
+
+  destroy-osms:
+    desc: "Destroy OSMS"
+    cmds:
+      - task: osms:destroy
+
+  get-kubeconfig-osms:
+    desc: "Retrieve OSMS kubeconfig"
+    cmds:
+      - task: osms:get-kubeconfig
+
+  #============================================================================
+  # OpenSpace Data Cluster (OSDC)
+  #============================================================================
+  deploy-osdc:
+    desc: "Deploy OpenSpace Data Cluster"
+    cmds:
+      - echo "Deploying OSDC..."
+      - task: osms:deploy-osdc
+      - echo "✓ OSDC deployment complete"
+
+  deploy-post-osdc:
+    desc: "Post-OSDC deployment tasks"
+    cmds:
+      - task: osms:deploy-post-osdc
+
+  destroy-osdc:
+    desc: "Destroy OSDC"
+    cmds:
+      - task: osms:destroy-osdc
+
+  get-kubeconfig-osdc:
+    desc: "Retrieve OSDC kubeconfig"
+    cmds:
+      - task: osms:get-kubeconfig-osdc
+
+  #============================================================================
+  # Full Deployment
+  #============================================================================
+  deploy-all:
+    desc: "Deploy complete platform (Infra → MCM → OSMS → OSDC)"
+    cmds:
+      - task: deploy-infra
+      - task: deploy-mcm
+      - task: deploy-osms
+      - task: deploy-osdc
+      - echo "✓ Complete platform deployment finished"
+
+  #============================================================================
+  # Status & Monitoring
+  #============================================================================
+  status:
+    desc: "Check deployment status"
+    cmds:
+      - ansible-playbook {{.DATA_DIR}}/playbooks/check_status.yml
+        -e shared_dir={{.SHARED_DIR}}
+
+  logs:
+    desc: "Show recent task logs"
+    cmds:
+      - |
+        if [ -f {{.CACHE_DIR}}/state.json ]; then
+          cat {{.CACHE_DIR}}/state.json | jq -r '.tasks | to_entries | .[-10:] | .[] | "\(.key): \(.value.status)"'
+        else
+          echo "No state file found"
+        fi
+
+  #============================================================================
+  # Updates
+  #============================================================================
+  update-quarterly:
+    desc: "Run quarterly system updates"
+    cmds:
+      - echo "Running quarterly updates..."
+      - ansible-playbook {{.DATA_DIR}}/playbooks/update_quarterly.yml
+        -e deployment_file={{.DEPLOYMENT_FILE}}
+        -e shared_dir={{.SHARED_DIR}}
+
+  #============================================================================
+  # Utilities
+  #============================================================================
+  clean-cache:
+    desc: "Clean cache directory"
+    cmds:
+      - rm -rf {{.CACHE_DIR}}/*
+      - echo "✓ Cache cleaned"
+
+  list:
+    desc: "List all available tasks"
+    cmds:
+      - task --list-all
+
+  default:
+    cmds:
+      - task --list

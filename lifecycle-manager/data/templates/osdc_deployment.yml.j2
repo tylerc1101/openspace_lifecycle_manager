@@ -1,0 +1,23 @@
+# ==============================================================================
+# OpenSpace Data Cluster Deployment - GENERATED FILE
+# ==============================================================================
+# Generated: {{ ansible_date_time.iso8601 }}
+# ==============================================================================
+
+apiVersion: openspace.kratos.us/v1alpha2
+kind: OpenspaceDataCluster
+metadata:
+  name: {{ osdc_cluster_name }}
+  namespace: openspace-system
+spec:
+  k8sDistro: v1.27.15+rke2r1
+  type: ssh
+  sshSpecs:
+    sshServers:
+{% for node in osdc_nodes %}
+    - name: {{ node.name }}
+      ipAddress: {{ node.mgmt_ip }}
+      secretRef:
+        name: osdc-ssh
+        namespace: openspace-system
+{% endfor %}

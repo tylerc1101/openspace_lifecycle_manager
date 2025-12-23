@@ -1,0 +1,16 @@
+# lifecycle-manager/requirements.txt
+
+# Ansible core
+ansible-core>=2.16.0,<2.17.0
+
+# Docker SDK for Python (required by community.docker collection)
+docker>=7.0.0
+
+# Additional Python libraries
+jinja2>=3.1.0
+pyyaml>=6.0
+requests>=2.31.0
+cryptography>=41.0.0
+
+# Utilities
+python-dotenv>=1.0.0

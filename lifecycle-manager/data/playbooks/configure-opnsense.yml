@@ -1,0 +1,47 @@
+---
+- name: Generate OPNsense config from template with variable replacement
+  hosts: "{{ target_hosts | default('localhost') }}"
+  
+  vars:
+    env_name: "{{ env_name | mandatory }}"
+    template_file: "{{ onboarder_dir }}/files/config_template.xml"
+    output_dir: "/docker-workspace/config/install/generated_files"
+    output_file: "{{ output_dir }}/config.xml"
+    wan_ip: "{{ hostvars['opnsense'].ansible_host }}"
+    opnsense_hostname: "opnsense"
+    wan_interface: "vtnet1"
+    lan_interface: "vtnet0"
+    opt1_interface: "vtnet2"
+  #vars_files:
+  #  - "/docker-workspace/confg/{{ env_name }}/group_vars/vms.yml"
+  
+  tasks:
+    
+    - name: Ensure output directory exists
+      file:
+        path: "{{ output_dir }}"
+        state: directory
+        mode: '0755'
+    
+    - name: Read template file
+      slurp:
+        src: "{{ template_file }}"
+      register: template_content
+    
+    - name: Replace variables in template
+      copy:
+        content: |
+          {{ template_content.content | b64decode | 
+             regex_replace('__WAN_IP__', wan_ip) |
+             regex_replace('__WAN_GATEWAY__', customer_gateway) |
+             regex_replace('__WAN_SUBNET__', customer_cidr | regex_replace('^/', '')) |
+             regex_replace('__NTP_TIMESERVERS__', ntp_server) |
+             regex_replace('__NTP_PREFER__', ntp_server) |
+             regex_replace('__OPNSENSE_HOSTNAME__', opnsense_hostname) |
+             regex_replace('__OPNSENSE_DOMAIN__', domain_name) |
+             regex_replace('__INTERFACE_WAN__', wan_interface) |
+             regex_replace('__INTERFACE_LAN__', lan_interface) |
+             regex_replace('__INTERFACE_OPT1__', opt1_interface) }}
+        dest: "{{ output_file }}"
+        mode: '0644'
+

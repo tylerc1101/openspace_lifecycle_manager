@@ -1,0 +1,156 @@
+---
+# ==============================================================================
+# Deploy Downstream Cluster (OSMS or OSDC) - Simple Single-Cluster Version
+# ==============================================================================
+# Required parameter: cluster_type (osms or osdc)
+# ==============================================================================
+
+- name: Deploy Downstream Cluster
+  hosts: localhost
+  gather_facts: yes
+  
+  vars:
+    kubeconfig_path: "/root/.kube/config"
+    generated_files_dir: "{{ install_dir }}/generated_files"
+    ssh_key_path: "{{ install_dir }}/.cache/rancher_ssh_key"
+
+  tasks:
+    # ==========================================================================
+    # Validation
+    # ==========================================================================
+    - name: Validate cluster_type parameter
+      assert:
+        that:
+          - cluster_type is defined
+          - cluster_type in ['osms', 'osdc']
+        fail_msg: "cluster_type must be 'osms' or 'osdc'"
+
+    - name: Set cluster configuration for OSMS
+      set_fact:
+        cluster_name: "{{ osms_cluster_name }}"
+        cluster_nodes: "{{ osms_nodes }}"
+        cluster_vip: "{{ vips.api_osms }}"
+        template_file: "osms_deployment.yml.j2"
+        secret_name: "osms-ssh"
+        kind_name: "openspacemanagementsystem"
+      when: cluster_type == 'osms'
+
+    - name: Set cluster configuration for OSDC
+      set_fact:
+        cluster_name: "{{ osdc_cluster_name }}"
+        cluster_nodes: "{{ osdc_nodes }}"
+        cluster_vip: "{{ vips.api_osdc }}"
+        template_file: "osdc_deployment.yml.j2"
+        secret_name: "osdc-ssh"
+        kind_name: "openspacedatacluster"
+      when: cluster_type == 'osdc'
+
+    - name: Validate cluster configuration
+      assert:
+        that:
+          - cluster_name is defined
+          - cluster_nodes is defined
+          - cluster_nodes | length > 0
+          - cluster_vip is defined
+        fail_msg: "Missing required {{ cluster_type | upper }} cluster configuration"
+
+    - name: Check if kubeconfig exists
+      stat:
+        path: "{{ kubeconfig_path }}"
+      register: kubeconfig_stat
+      failed_when: not kubeconfig_stat.stat.exists
+
+    # ==========================================================================
+    # Create SSH Secret
+    # ==========================================================================
+    - name: Read SSH private key
+      ansible.builtin.slurp:
+        src: "{{ ssh_key_path }}"
+      register: ssh_private_key_content
+      delegate_to: localhost
+
+    - name: Make a DNS-1123-safe secret name
+      set_fact:
+        safe_secret_name: >-
+          {{ secret_name
+             | lower
+             | regex_replace('[^a-z0-9.-]', '-')
+             | regex_replace('^[^a-z0-9]+', '')
+             | regex_replace('[^a-z0-9]+$', '') }}
+
+    - name: Create secret YAML
+      copy:
+        content: |
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: {{ safe_secret_name }}
+            namespace: openspace-system
+          type: Opaque
+          data:
+            sshKey: "{{ ssh_private_key_content.content | b64encode }}"
+            username: "{{ ansible_user | b64encode }}"
+        dest: "/{{ generated_files_dir }}/{{ cluster_name }}_ssh_secret.yaml"
+
+    - name: Apply SSH secret to Kubernetes
+      ansible.builtin.command:
+        cmd: kubectl --kubeconfig={{ kubeconfig_path }} apply -f /{{ generated_files_dir }}/{{ cluster_name }}_ssh_secret.yaml
+      register: secret_apply_result
+      changed_when: "'configured' in secret_apply_result.stdout or 'created' in secret_apply_result.stdout"
+
+    - name: Display secret creation result
+      debug:
+        msg: "SSH secret '{{ safe_secret_name }}' {{ 'updated' if 'configured' in secret_apply_result.stdout else 'created' }}"
+
+    # ==========================================================================
+    # Generate and Apply Deployment
+    # ==========================================================================
+    - name: Set deployment file path
+      set_fact:
+        deployment_file: "{{ generated_files_dir }}/{{ cluster_name }}-deployment.yaml"
+
+    - name: Generate deployment YAML
+      template:
+        src: "{{ onboarder_dir }}/templates/{{ template_file }}"
+        dest: "{{ deployment_file }}"
+        mode: '0644'
+
+    - name: Display generated deployment file
+      debug:
+        msg: "Generated: {{ deployment_file }}"
+
+    - name: Apply deployment to MCM cluster
+      command: >
+        kubectl apply -f {{ deployment_file }}
+        --kubeconfig={{ kubeconfig_path }}
+      register: kubectl_apply_result
+
+    - name: Display deployment result
+      debug:
+        msg: "{{ kubectl_apply_result.stdout_lines }}"
+
+    # ==========================================================================
+    # Wait for Deployment
+    # ==========================================================================
+    - name: Wait for cluster to be ready
+      command: >
+        kubectl get {{ kind_name }} {{ cluster_name }}
+        --namespace openspace-system
+        --kubeconfig={{ kubeconfig_path }}
+        -o jsonpath='{.status.phase}'
+      register: cluster_status
+      until: cluster_status.stdout == "Ready"
+      retries: 60
+      delay: 10
+      failed_when: false
+
+    - name: Show final cluster status
+      command: >
+        kubectl get {{ kind_name }} {{ cluster_name }}
+        --namespace openspace-system
+        --kubeconfig={{ kubeconfig_path }}
+      register: cluster_info
+
+    - name: Display cluster information
+      debug:
+        msg: "{{ cluster_info.stdout_lines }}"

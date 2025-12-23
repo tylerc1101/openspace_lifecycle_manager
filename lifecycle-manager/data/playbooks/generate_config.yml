@@ -1,0 +1,187 @@
+---
+# ==============================================================================
+# OpenSpace Platform - Configuration Generator
+# ==============================================================================
+# This playbook generates all configuration files from a single deployment.yml
+# It also manages SSH key generation and validation
+# ==============================================================================
+
+- name: Generate deployment configuration files
+  hosts: localhost
+  
+  tasks:
+    # ==========================================================================
+    # PHASE 1: Load and Validate Source Config
+    # ==========================================================================
+    - name: "PHASE 1: Load and Validate Configuration"
+      debug:
+        msg: "Loading deployment configuration from {{ deployment_config }}"
+    
+    - name: Check if deployment.yml exists
+      stat:
+        path: "{{ deployment_config }}"
+      register: deployment_config_stat
+      failed_when: not deployment_config_stat.stat.exists
+    
+    - name: Load deployment configuration
+      include_vars:
+        file: "{{ deployment_config }}"
+        name: config
+    
+    - name: Display loaded configuration
+      debug:
+        msg: "✓ Loaded configuration for deployment: {{ config.deployment.name }}"
+    
+    #- name: Validate required fields in deployment.yml
+    #  assert:
+    #    that:
+    #      - config.deployment is defined
+    #      - config.deployment.name is defined
+    #      - config.deployment.type is defined
+    #      - config.ssh is defined
+    #      - config.ssh.user is defined
+    #      #- config.ssh.keys is defined
+    #      # Need to investigate what needs to be defined here
+    #    fail_msg: "deployment.yml is missing required fields"
+    #    success_msg: "✓ All required fields present in deployment.yml"
+    
+    - name: Set deployment type for templates
+      set_fact:
+        deployment_type: "{{ config.deployment.type }}"
+    
+    # ==========================================================================
+    # PHASE 2: Create Directory Structure
+    # ==========================================================================
+    - name: "PHASE 2: Directory Structure"
+      debug:
+        msg: "Creating configuration directory structure"
+    
+    - name: Ensure group_vars directory exists
+      file:
+        path: "{{ install_dir }}/group_vars"
+        state: directory
+        mode: '0755'
+    
+    - name: Ensure host_vars directory exists
+      file:
+        path: "{{ install_dir }}/host_vars"
+        state: directory
+        mode: '0755'
+    
+    - name: Ensure cache directory exists
+      file:
+        path: "{{ install_dir }}/.cache/generated"
+        state: directory
+        mode: '0755'
+
+    - name: Ensure .ssh directory exists
+      file:
+        path: "{{ install_dir }}/.ssh"
+        state: directory
+        mode: '0700'
+    
+    # ==========================================================================
+    # PHASE 3: Generate Ansible Inventory
+    # ==========================================================================
+    - name: "PHASE 3: Generate Ansible Inventory"
+      debug:
+        msg: "Generating inventory.yml from template"
+    
+    - name: Generate Ansible inventory (inventory.yml)
+      template:
+        src: "{{ templates_dir }}/inventory.yml.j2"
+        dest: "{{ install_dir }}/inventory.yml"
+        mode: '0644'
+      vars:
+        deployment: "{{ config.deployment }}"
+        ssh: "{{ config.ssh }}"
+        networks: "{{ config.networks }}"
+        domain: "{{ config.domain }}"
+        ntp: "{{ config.ntp }}"
+        infrastructure: "{{ config.infrastructure }}"
+        management_cluster: "{{ config.management_cluster }}"
+        openspace_management_system: "{{ config.openspace_management_system }}"
+        openspace_datapath_cluster: "{{ config.openspace_datapath_cluster }}"
+        vips: "{{ config.vips | default({}) }}"
+
+    # ==========================================================================
+    # PHASE 4: Generate group_vars Files
+    # ==========================================================================
+    - name: "PHASE 4: Generate group_vars"
+      debug:
+        msg: "Generating group_vars files from templates"
+    
+    - name: Generate group_vars/all.yml
+      template:
+        src: "{{ templates_dir }}/group_vars_all.yml.j2"
+        dest: "{{ install_dir }}/group_vars/all.yml"
+        mode: '0644'
+      vars:
+        deployment: "{{ config.deployment }}"
+        ssh: "{{ config.ssh }}"
+        networks: "{{ config.networks }}"
+        domain: "{{ config.domain }}"
+        ntp: "{{ config.ntp }}"
+        vips: "{{ config.vips | default({}) }}"
+        storage: "{{ config.storage | default({}) }}"
+        virtual_machines: "{{ config.virtual_machines | default({}) }}"
+        management_cluster: "{{ config.management_cluster | default({}) }}"
+        openspace_management_system: "{{ config.openspace_management_system | default({}) }}"
+        openspace_datapath_cluster: "{{ config.openspace_datapath_cluster | default({}) }}"
+
+    # ==========================================================================
+    # PHASE 5: Generate host_vars Files
+    # ==========================================================================
+    - name: "PHASE 5: Generate host_vars"
+      debug:
+        msg: "Generating host_vars files from templates"
+    
+    - name: Generate host_vars/mgmt_kvm.yml
+      template:
+        src: "{{ templates_dir }}/host_vars_mgmt_kvm.yml.j2"
+        dest: "{{ install_dir }}/host_vars/mgmt_kvm.yml"
+        mode: '0644'
+      vars:
+        mgmt_kvm: "{{ config.infrastructure.mgmt_kvm }}"
+        networks: "{{ config.networks }}"
+    
+    # ==========================================================================
+    # PHASE 6: Generate Taskfile (optional)
+    # ==========================================================================
+    - name: "PHASE 6: Generate Taskfile"
+      debug:
+        msg: "Generating Taskfile.yml from template"
+    
+    - name: Check if Taskfile template exists
+      stat:
+        path: "{{ templates_dir }}/taskfile.yml.j2"
+      register: taskfile_template
+    
+    - name: Generate Taskfile.yml
+      template:
+        src: "{{ templates_dir }}/taskfile.yml.j2"
+        dest: "{{ install_dir }}/Taskfile.yml"
+        mode: '0644'
+      vars:
+        deployment: "{{ config.deployment }}"
+        clusters: "{{ config.clusters }}"
+      when: taskfile_template.stat.exists
+    
+    # ==========================================================================
+    # PHASE 7: Validation
+    # ==========================================================================
+    - name: "PHASE 7: Validate Generated Files"
+      debug:
+        msg: "Validating generated configuration files"
+    
+    - name: Validate generated config.yml syntax
+      command: ansible-inventory -i {{ install_dir }}/config.yml --list
+      register: inventory_validation
+      changed_when: false
+      failed_when: inventory_validation.rc != 0
+    
+    - name: Validate generated group_vars YAML syntax
+      command: python3 -c "import yaml; yaml.safe_load(open('{{ item }}'))"
+      loop:
+        - "{{ install_dir }}/group_vars/all.yml"
+      changed_when: false

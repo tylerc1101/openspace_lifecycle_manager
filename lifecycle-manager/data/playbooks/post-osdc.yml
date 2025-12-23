@@ -1,0 +1,156 @@
+---
+# ==============================================================================
+# Post OSDC SR-IOV Configuration
+# ==============================================================================
+# This playbook applies SR-IOV network and node policy configurations to the
+# OSDC cluster.
+#
+# Files applied (in order):
+#   1. SR-IOV Networks (difi0, difi2, traffic)
+#   2. SR-IOV Node Policies (osdc1, osdc2)
+#   3. Anti-flood Policy
+# ==============================================================================
+
+- name: Apply SR-IOV Configurations
+  hosts: localhost
+  gather_facts: yes
+  
+  vars:
+    kubeconfig_path: "{{ install_dir }}/generated_files/osdc.yml"
+    
+    # Files to apply in order
+    sriov_files:
+      - name: "SR-IOV Network difi0"
+        file: "sriov-network-difi0.yml"
+      - name: "SR-IOV Network difi2"
+        file: "sriov-network-difi2.yml"
+      - name: "SR-IOV Network traffic"
+        file: "sriov-network-traffic.yml"
+      - name: "OSDC1 SR-IOV Node Policy"
+        file: "osdc1-sriov-node-policy.yml"
+      - name: "OSDC2 SR-IOV Node Policy"
+        file: "osdc2-sriov-node-policy.yml"
+      - name: "Anti-flood Policy"
+        file: "anti-flood-policy.yml"
+
+  tasks:
+    # ==========================================================================
+    # Validation
+    # ==========================================================================
+    - name: Check if kubeconfig exists
+      stat:
+        path: "{{ kubeconfig_path }}"
+      register: kubeconfig_stat
+      failed_when: not kubeconfig_stat.stat.exists
+
+    - name: Check if SR-IOV files directory exists
+      stat:
+        path: "{{ onboarder_dir }}/files"
+      register: sriov_dir_stat
+      failed_when: not sriov_dir_stat.stat.exists
+
+    - name: Verify all SR-IOV files exist
+      stat:
+        path: "{{ onboarder_dir }}/files/{{ item.file }}"
+      register: file_checks
+      loop: "{{ sriov_files }}"
+      loop_control:
+        label: "{{ item.name }}"
+      failed_when: not file_checks.results | map(attribute='stat.exists') | list | min
+
+    # ==========================================================================
+    # Apply SR-IOV Networks
+    # ==========================================================================
+    - name: Apply SR-IOV network configurations
+      command: >
+        kubectl apply -f {{ onboarder_dir }}/files/{{ item.file }}
+        --kubeconfig={{ kubeconfig_path }}
+      register: network_apply_result
+      changed_when: "'configured' in network_apply_result.stdout or 'created' in network_apply_result.stdout"
+      loop:
+        - name: "SR-IOV Network difi0"
+          file: "sriov-network-difi0.yml"
+        - name: "SR-IOV Network difi2"
+          file: "sriov-network-difi2.yml"
+        - name: "SR-IOV Network traffic"
+          file: "sriov-network-traffic.yml"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Display network application results
+      debug:
+        msg: "{{ item.item.name }}: {{ item.stdout_lines }}"
+      loop: "{{ network_apply_result.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    # ==========================================================================
+    # Apply SR-IOV Node Policies
+    # ==========================================================================
+    - name: Apply SR-IOV node policy configurations
+      command: >
+        kubectl apply -f {{ onboarder_dir }}/files/{{ item.file }}
+        --kubeconfig={{ kubeconfig_path }}
+      register: policy_apply_result
+      changed_when: "'configured' in policy_apply_result.stdout or 'created' in policy_apply_result.stdout"
+      loop:
+        - name: "OSDC1 SR-IOV Node Policy"
+          file: "osdc1-sriov-node-policy.yml"
+        - name: "OSDC2 SR-IOV Node Policy"
+          file: "osdc2-sriov-node-policy.yml"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: Display policy application results
+      debug:
+        msg: "{{ item.item.name }}: {{ item.stdout_lines }}"
+      loop: "{{ policy_apply_result.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    # ==========================================================================
+    # Apply Anti-flood Policy
+    # ==========================================================================
+    - name: Apply anti-flood policy
+      command: >
+        kubectl apply -f {{ onboarder_dir }}/files/anti-flood-policy.yml
+        --kubeconfig={{ kubeconfig_path }}
+      register: antiflood_apply_result
+      changed_when: "'configured' in antiflood_apply_result.stdout or 'created' in antiflood_apply_result.stdout"
+
+    - name: Display anti-flood policy result
+      debug:
+        msg: "Anti-flood Policy: {{ antiflood_apply_result.stdout_lines }}"
+
+    # ==========================================================================
+    # Verification
+    # ==========================================================================
+    - name: Wait a moment for resources to be created
+      pause:
+        seconds: 5
+
+    - name: Verify SR-IOV network resources
+      command: >
+        kubectl get sriovnetwork
+        --all-namespaces
+        --kubeconfig={{ kubeconfig_path }}
+      register: sriov_networks
+      failed_when: false
+
+    - name: Display SR-IOV networks
+      debug:
+        msg: "{{ sriov_networks.stdout_lines }}"
+      when: sriov_networks.rc == 0
+
+    - name: Verify SR-IOV node policies
+      command: >
+        kubectl get sriovnetworknodepolicy
+        --all-namespaces
+        --kubeconfig={{ kubeconfig_path }}
+      register: sriov_policies
+      failed_when: false
+
+    - name: Display SR-IOV node policies
+      debug:
+        msg: "{{ sriov_policies.stdout_lines }}"
+      when: sriov_policies.rc == 0

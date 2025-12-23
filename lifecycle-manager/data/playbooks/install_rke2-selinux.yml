@@ -1,0 +1,29 @@
+- name: Copy and install RKE2-selinux RPM
+  hosts: "{{ target_hosts }}"
+  become: true
+  vars:
+    rpm_local_glob: "/docker-workspace/images/rke2-selinux-*.rpm"
+  tasks:
+    - name: Expand local RPM path(s)
+      set_fact:
+        rpm_local_list: "{{ lookup('fileglob', rpm_local_glob, wantlist=True) }}"
+      delegate_to: localhost
+      run_once: true
+
+    - name: Fail if no RPM found locally
+      fail:
+        msg: "No rke2-selinux RPM found at {{ rpm_local_glob }} on the control node."
+      when: rpm_local_list | length == 0
+
+    - name: Copy RPM(s) from control node to remote /tmp
+      copy:
+        src: "{{ item }}"
+        dest: "/tmp/{{ item | basename }}"
+        mode: "0644"
+      loop: "{{ rpm_local_list }}"
+
+    - name: Install the copied RPM(s)
+      yum:
+        name: "{{ rpm_local_list | map('basename') | map('regex_replace', '^(.*)$', '/tmp/\\1') | list }}"
+        state: present
+        disable_gpg_check: true

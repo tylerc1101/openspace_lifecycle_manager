@@ -1,0 +1,13 @@
+apiVersion: sriovnetwork.openshift.io/v1
+kind: SriovNetwork
+metadata:
+  name: sriov-network-difi2
+  namespace: cattle-sriov-system
+spec:
+  ipam: |
+    {
+      "type": "static"
+    }
+  vlan: 16
+  maxTxRate: 9500
+  resourceName: intelnics

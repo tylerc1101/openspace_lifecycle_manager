@@ -1,0 +1,36 @@
+- name: Copy files to mgmt_kvm
+  hosts: "{{ target_hosts | default('mgmt_kvm') }}"
+  vars:
+    env_name: "{{ env_name | mandatory }}"
+    output_dir: "/docker-workspace/config/install/generated_files"
+    output_file: "{{ output_dir }}/config.xml"
+    images_dir: /var/lib/libvirt/config
+    vm_config_dir: /var/lib/libvirt/config/vm_config
+    opnsense_dir: /var/lib/libvirt/config/vm_config/opnsense
+
+  tasks:
+    - name: Ensure directories exist
+      file:
+        path: "{{ item }}"
+        state: directory
+      loop: 
+        - "{{ images_dir }}"
+        - "{{ vm_config_dir }}"
+        - "{{ opnsense_dir }}"
+
+    - name: Copy generated config to mgmt_kvm
+      copy:
+        src: "{{ output_file }}"
+        dest: "/var/lib/libvirt/config/vm_config/opnsense/config.xml"
+        mode: '0644'
+
+    - name: Set SELinux file context for this nonstandard libvirt path
+      community.general.sefcontext:
+        target: "{{ opnsense_dir }}(/.*)?"
+        setype: svirt_image_t
+        state: present
+
+    - name: Restore SELinux contexts
+      command: restorecon -Rv "{{ opnsense_dir }}"
+      register: rc_restore
+      changed_when: "'restorecon' in rc_restore.stdout | default('')"

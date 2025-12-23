@@ -1,0 +1,153 @@
+---
+- name: Expand disk partition and logical volumes
+  hosts: "{{ target_hosts }}:!openspace_data_cluster"
+  become: yes
+  gather_facts: yes
+  
+  vars:
+    disk_device: /dev/vda
+    partition_number: 3
+    vg_name: vg_root
+    
+    lv_expansions:
+      - { name: lv_log, percent: 4, mount: /var/log }
+      - { name: lv_vmp, percent: 4, mount: /var/tmp }
+      - { name: lv_audit, percent: 4, mount: /var/log/audit }
+      - { name: lv_tmp, percent: 5, mount: /tmp }
+      - { name: lv_home, percent: 25, mount: /home }
+      - { name: lv_var, percent: 50, mount: /var }
+      - { name: lv_root, percent: 100, mount: / }
+
+  tasks:
+    - name: Check if partition exists
+      shell: "parted {{ disk_device }} --script --fix print 2>/dev/null | grep '^ {{ partition_number }}' || echo 'NOTFOUND'"
+      register: partition_check
+      changed_when: false
+
+    - name: Debug partition check
+      debug:
+        msg: "Partition check result: {{ partition_check.stdout }}"
+
+    - name: Get partition and disk information
+      shell: |
+        echo "DISK_END=$(parted {{ disk_device }} unit s print free 2>/dev/null | grep "Disk {{ disk_device }}" | awk '{print $3}' | sed 's/s//')"
+        echo "PART_END=$(parted {{ disk_device }} unit s print 2>/dev/null | grep "^ {{ partition_number }}" | awk '{print $3}' | sed 's/s//')"
+        echo "PART_START=$(parted {{ disk_device }} unit s print 2>/dev/null | grep "^ {{ partition_number }}" | awk '{print $2}')"
+        
+        # Check if partition is within 2048 sectors of disk end (1MB tolerance)
+        if [ "$PART_END" -ge "$((DISK_END - 2048))" ]; then
+          echo "NEEDS_RESIZE=false"
+        else
+          echo "NEEDS_RESIZE=true"
+          echo "AVAILABLE_SECTORS=$((DISK_END - PART_END))"
+        fi
+      register: partition_info
+      changed_when: false
+
+    - name: Parse partition information
+      set_fact:
+        part_start: "{{ partition_info.stdout | regex_search('PART_START=([^\\s]+)', '\\1') | first }}"
+        needs_partition_resize: "{{ 'NEEDS_RESIZE=true' in partition_info.stdout }}"
+
+    - name: Display partition status
+      debug:
+        msg: "Partition {{ partition_number }}: {{ 'needs expansion' if needs_partition_resize else 'already at maximum size' }}"
+
+    - name: Expand partition if needed
+      block:
+        - name: Remove and recreate partition (ignore kernel warning)
+          shell: |
+            parted {{ disk_device }} --script -- rm {{ partition_number }} 2>&1 || true
+            parted {{ disk_device }} --script -- mkpart primary {{ part_start }} 100% 2>&1 || true
+            parted {{ disk_device }} --script -- set {{ partition_number }} lvm on 2>&1 || true
+            echo "Partition table updated"
+          args:
+            executable: /bin/bash
+          register: parted_result
+          failed_when: false
+
+        - name: Display parted output
+          debug:
+            var: parted_result.stdout_lines
+
+        - name: Inform kernel of partition changes with partprobe
+          command: partprobe {{ disk_device }}
+          register: partprobe_result
+          failed_when: false
+
+        - name: Inform kernel with partx (alternative method)
+          command: partx -u {{ disk_device }}
+          register: partx_result
+          failed_when: false
+
+        - name: Force kernel update with blockdev
+          command: blockdev --rereadpt {{ disk_device }}
+          register: blockdev_result
+          failed_when: false
+
+        - name: Wait for kernel to process changes
+          pause:
+            seconds: 3
+      when: needs_partition_resize | bool
+
+    - name: Resize physical volume (always safe to run)
+      command: pvresize {{ disk_device }}{{ partition_number }}
+      register: pvresize_result
+      changed_when: "'Physical volume' in pvresize_result.stdout and 'changed' in pvresize_result.stdout"
+
+    - name: Get volume group free space
+      shell: vgs --noheadings -o vg_free_count {{ vg_name }}
+      register: vg_info
+      changed_when: false
+
+    - name: Set free extents fact
+      set_fact:
+        vg_free_extents: "{{ vg_info.stdout | trim | int }}"
+
+    - name: Display volume group status
+      debug:
+        msg: "Volume group {{ vg_name }} has {{ vg_free_extents }} free extents"
+
+    - name: Extend logical volumes if space available
+      command: "lvextend -l +{{ item.percent }}%FREE /dev/{{ vg_name }}/{{ item.name }}"
+      loop: "{{ lv_expansions }}"
+      register: lv_extend_result
+      when: vg_free_extents | int > 0
+      changed_when: 
+        - lv_extend_result.rc == 0
+        - "'matches existing size' not in lv_extend_result.stdout"
+      failed_when: 
+        - lv_extend_result.rc != 0
+        - "'matches existing size' not in lv_extend_result.stderr"
+        - "'matches existing size' not in lv_extend_result.stdout"
+
+    - name: Grow XFS filesystems for extended volumes
+      command: "xfs_growfs {{ item.item.mount }}"
+      loop: "{{ lv_extend_result.results }}"
+      when: 
+        - vg_free_extents | int > 0
+        - item.changed | default(false)
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: Report status
+      debug:
+        msg: >-
+          {% if not needs_partition_resize and vg_free_extents | int == 0 %}
+          System already configured - no changes needed
+          {% elif needs_partition_resize %}
+          Partition expanded and logical volumes extended
+          {% elif vg_free_extents | int > 0 %}
+          Logical volumes extended (partition was already at max)
+          {% else %}
+          No free space available for expansion
+          {% endif %}
+
+    - name: Display final filesystem sizes
+      command: df -h
+      register: df_output
+      changed_when: false
+
+    - name: Show filesystem sizes
+      debug:
+        var: df_output.stdout_lines

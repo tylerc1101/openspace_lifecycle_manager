@@ -1,0 +1,798 @@
+#!/bin/bash
+# openspace - OpenSpace Platform CLI
+# Manages lifecycle manager and deployment workflow using Docker volumes
+
+set -e
+
+#==============================================================================
+# CONFIGURATION
+#==============================================================================
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
+
+# Container configuration
+LIFECYCLE_MANAGER_IMAGE="openspace-lifecycle-manager:latest"
+LIFECYCLE_MANAGER_NAME="openspace-lifecycle"
+RUNTIME="${CONTAINER_RUNTIME:-podman}"
+
+# Volume names
+VOL_SHARED="openspace_shared"
+VOL_ONBOARDER="openspace_onboarder"
+VOL_OSMS="openspace_osms"
+
+# Deployment file
+DEPLOYMENT_FILE="${SCRIPT_DIR}/config/deployment.yml"
+
+#==============================================================================
+# COLORS & OUTPUT
+#==============================================================================
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+log_info() { echo -e "${BLUE}→${NC} $1"; }
+log_success() { echo -e "${GREEN}✓${NC} $1"; }
+log_error() { echo -e "${RED}✗${NC} $1" >&2; }
+log_warning() { echo -e "${YELLOW}⚠${NC} $1"; }
+log_step() { echo -e "${CYAN}▸${NC} $1"; }
+
+#==============================================================================
+# UTILITY FUNCTIONS
+#==============================================================================
+
+# Check if container runtime is available
+check_runtime() {
+    if ! command -v "${RUNTIME}" >/dev/null 2>&1; then
+        log_error "Container runtime '${RUNTIME}' not found"
+        echo ""
+        echo "Please install Docker or Podman:"
+        echo "  RHEL/Rocky: sudo dnf install podman"
+        echo "  Ubuntu:     sudo apt install docker.io"
+        exit 1
+    fi
+}
+
+# Check if lifecycle manager is running
+is_lifecycle_manager_running() {
+    ${RUNTIME} ps --filter "name=^${LIFECYCLE_MANAGER_NAME}$" --format "{{.Names}}" 2>/dev/null | grep -q "^${LIFECYCLE_MANAGER_NAME}$"
+}
+
+# Check if container exists (running or stopped)
+container_exists() {
+    local name="$1"
+    ${RUNTIME} ps -a --filter "name=^${name}$" --format "{{.Names}}" 2>/dev/null | grep -q "^${name}$"
+}
+
+# Check if container is running
+container_running() {
+    local name="$1"
+    ${RUNTIME} ps --filter "name=^${name}$" --format "{{.Names}}" 2>/dev/null | grep -q "^${name}$"
+}
+
+#==============================================================================
+# VOLUME MANAGEMENT
+#==============================================================================
+
+# Create volumes if they don't exist
+ensure_volumes() {
+    local created=0
+    
+    for vol in "$VOL_SHARED" "$VOL_ONBOARDER" "$VOL_OSMS"; do
+        if ! ${RUNTIME} volume inspect "$vol" >/dev/null 2>&1; then
+            ${RUNTIME} volume create "$vol" >/dev/null
+            log_step "Created volume: $vol"
+            created=1
+        fi
+    done
+    
+    if [ $created -eq 0 ]; then
+        log_step "Volumes already exist"
+    fi
+}
+
+# List volumes with info
+list_volumes() {
+    echo ""
+    echo "OpenSpace Volumes:"
+    echo ""
+    
+    for vol in "$VOL_SHARED" "$VOL_ONBOARDER" "$VOL_OSMS"; do
+        if ${RUNTIME} volume inspect "$vol" >/dev/null 2>&1; then
+            local mount_point=$(${RUNTIME} volume inspect "$vol" --format '{{.Mountpoint}}' 2>/dev/null || echo "N/A")
+            echo -e "  ${GREEN}●${NC} $vol"
+            echo "      Location: $mount_point"
+        else
+            echo -e "  ${RED}○${NC} $vol (not created)"
+        fi
+    done
+    
+    echo ""
+}
+
+#==============================================================================
+# LIFECYCLE MANAGER MANAGEMENT
+#==============================================================================
+
+# Start lifecycle manager container
+start_lifecycle_manager() {
+    if is_lifecycle_manager_running; then
+        log_step "Lifecycle manager already running"
+        return 0
+    fi
+    
+    ensure_volumes
+    
+    # Check if container exists but is stopped
+    if container_exists "${LIFECYCLE_MANAGER_NAME}"; then
+        log_step "Starting existing lifecycle manager..."
+        ${RUNTIME} start "${LIFECYCLE_MANAGER_NAME}" >/dev/null
+        log_success "Lifecycle manager started"
+        return 0
+    fi
+    
+    # Create new container
+    log_step "Creating lifecycle manager container..."
+    
+    ${RUNTIME} run -d \
+        --name "${LIFECYCLE_MANAGER_NAME}" \
+        --network host \
+        -v /var/run/${RUNTIME}/${RUNTIME}.sock:/var/run/docker.sock:ro \
+        -v "${VOL_SHARED}:/workspace/shared:rw" \
+        -w /workspace \
+        "${LIFECYCLE_MANAGER_IMAGE}" \
+        sleep infinity >/dev/null
+    
+    log_success "Lifecycle manager started"
+}
+
+# Stop lifecycle manager
+stop_lifecycle_manager() {
+    if ! is_lifecycle_manager_running; then
+        log_warning "Lifecycle manager not running"
+        return 0
+    fi
+    
+    log_step "Stopping lifecycle manager..."
+    ${RUNTIME} stop "${LIFECYCLE_MANAGER_NAME}" >/dev/null
+    log_success "Lifecycle manager stopped"
+}
+
+# Remove lifecycle manager container (keeps volumes)
+remove_lifecycle_manager() {
+    if container_exists "${LIFECYCLE_MANAGER_NAME}"; then
+        if is_lifecycle_manager_running; then
+            ${RUNTIME} stop "${LIFECYCLE_MANAGER_NAME}" >/dev/null 2>&1
+        fi
+        ${RUNTIME} rm "${LIFECYCLE_MANAGER_NAME}" >/dev/null 2>&1
+        log_step "Removed lifecycle manager container"
+    fi
+}
+
+#==============================================================================
+# DEPLOYMENT INITIALIZATION
+#==============================================================================
+
+# Initialize deployment from deployment.yml
+init_deployment() {
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════════╗"
+    echo "║  OpenSpace Platform - Initialization                          ║"
+    echo "╚════════════════════════════════════════════════════════════════╝"
+    echo ""
+    
+    # Check deployment file exists
+    if [ ! -f "${DEPLOYMENT_FILE}" ]; then
+        log_error "Deployment file not found: ${DEPLOYMENT_FILE}"
+        echo ""
+        echo "Please create a deployment.yml file in:"
+        echo "  ${SCRIPT_DIR}/config/deployment.yml"
+        echo ""
+        echo "See example.deployment.yml for reference."
+        return 1
+    fi
+    
+    log_info "Initializing from: $(basename ${DEPLOYMENT_FILE})"
+    echo ""
+    
+    # Start lifecycle manager
+    start_lifecycle_manager
+    echo ""
+    
+    # Copy deployment.yml into shared volume
+    log_step "Loading deployment configuration..."
+    ${RUNTIME} cp "${DEPLOYMENT_FILE}" "${LIFECYCLE_MANAGER_NAME}:/workspace/shared/deployment.yml"
+    
+    # Run initialization playbook
+    log_step "Generating configuration files..."
+    echo ""
+    
+    ${RUNTIME} exec -it \
+        "${LIFECYCLE_MANAGER_NAME}" \
+        ansible-playbook /workspace/data/playbooks/init_deployment.yml \
+        -e "deployment_file=/workspace/shared/deployment.yml"
+    
+    local exit_code=$?
+    
+    echo ""
+    if [ $exit_code -eq 0 ]; then
+        log_success "Initialization complete"
+        echo ""
+        echo "Next steps:"
+        echo "  ${CYAN}${SCRIPT_NAME} status${NC}         # Check status"
+        echo "  ${CYAN}${SCRIPT_NAME} deploy-mcm${NC}     # Deploy management cluster"
+    else
+        log_error "Initialization failed"
+        return 1
+    fi
+    
+    echo ""
+}
+
+#==============================================================================
+# TASK EXECUTION
+#==============================================================================
+
+# Execute a task in the lifecycle manager
+exec_task() {
+    local task="$1"
+    shift
+    local args="$@"
+    
+    # Ensure lifecycle manager is running
+    if ! is_lifecycle_manager_running; then
+        log_step "Starting lifecycle manager..."
+        start_lifecycle_manager
+        echo ""
+    fi
+    
+    # Display task banner
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════════╗"
+    printf "║  Task: %-55s ║\n" "${task}"
+    echo "╚════════════════════════════════════════════════════════════════╝"
+    echo ""
+    
+    local start_time=$(date +%s)
+    
+    # Execute task with real-time output
+    ${RUNTIME} exec -it \
+        -w /workspace \
+        "${LIFECYCLE_MANAGER_NAME}" \
+        task "${task}" ${args}
+    
+    local exit_code=$?
+    local end_time=$(date +%s)
+    local duration=$((end_time - start_time))
+    
+    # Show result
+    echo ""
+    echo "────────────────────────────────────────────────────────────────"
+    if [ $exit_code -eq 0 ]; then
+        echo -e "${GREEN}✓ Task completed successfully${NC} (${duration}s)"
+    else
+        echo -e "${RED}✗ Task failed with exit code ${exit_code}${NC} (${duration}s)"
+        echo ""
+        echo "Troubleshooting:"
+        echo "  ${SCRIPT_NAME} logs ${task}     # View detailed logs"
+        echo "  ${SCRIPT_NAME} shell            # Debug interactively"
+    fi
+    echo "────────────────────────────────────────────────────────────────"
+    echo ""
+    
+    return $exit_code
+}
+
+#==============================================================================
+# STATUS & LOGS
+#==============================================================================
+
+# Show platform status
+show_status() {
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════════╗"
+    echo "║  OpenSpace Platform Status                                     ║"
+    echo "╚════════════════════════════════════════════════════════════════╝"
+    echo ""
+    
+    # Lifecycle manager
+    echo "Containers:"
+    if is_lifecycle_manager_running; then
+        echo -e "  ${GREEN}●${NC} Lifecycle Manager   (Running)"
+    else
+        echo -e "  ${RED}○${NC} Lifecycle Manager   (Stopped)"
+    fi
+    
+    # Check managed containers
+    for container in onboarder osms quarterly-updates; do
+        if container_running "${container}"; then
+            echo -e "  ${GREEN}●${NC} ${container}"
+        elif container_exists "${container}"; then
+            echo -e "  ${YELLOW}○${NC} ${container} (Stopped)"
+        else
+            echo -e "  ${RED}○${NC} ${container} (Not created)"
+        fi
+    done
+    
+    echo ""
+    
+    # Show deployment state if available
+    if is_lifecycle_manager_running; then
+        echo "Recent Tasks:"
+        ${RUNTIME} exec "${LIFECYCLE_MANAGER_NAME}" \
+            sh -c 'if [ -f /workspace/shared/.cache/state.json ]; then cat /workspace/shared/.cache/state.json | jq -r ".tasks | to_entries | .[-5:] | .[] | \"  \(.key): \(.value.status)\"" 2>/dev/null || echo "  No tasks completed yet"; else echo "  No state file found"; fi'
+    fi
+    
+    echo ""
+}
+
+# View logs for a specific task
+view_logs() {
+    local task_name="$1"
+    
+    if ! is_lifecycle_manager_running; then
+        log_error "Lifecycle manager not running"
+        echo "Start it with: ${SCRIPT_NAME} start"
+        return 1
+    fi
+    
+    if [ -z "$task_name" ]; then
+        echo ""
+        log_info "Available logs:"
+        ${RUNTIME} exec "${LIFECYCLE_MANAGER_NAME}" \
+            sh -c 'ls -1 /workspace/shared/.cache/logs/*.log 2>/dev/null | xargs -n1 basename | sed "s/task_/  /" | sed "s/.log//"' || log_warning "No logs found"
+        echo ""
+        echo "Usage: ${SCRIPT_NAME} logs <task-name>"
+        echo "Example: ${SCRIPT_NAME} logs deploy-mcm"
+        return 0
+    fi
+    
+    log_info "Streaming logs for: ${task_name}"
+    log_step "Press Ctrl+C to exit"
+    echo ""
+    
+    ${RUNTIME} exec -it "${LIFECYCLE_MANAGER_NAME}" \
+        tail -f "/workspace/shared/.cache/logs/task_${task_name}.log" 2>/dev/null || {
+            log_error "Log file not found: task_${task_name}.log"
+            return 1
+        }
+}
+
+#==============================================================================
+# SHELL ACCESS
+#==============================================================================
+
+# Open shell in specified container
+open_shell() {
+    local target="${1:-lifecycle}"
+    
+    case "$target" in
+        lifecycle)
+            if ! is_lifecycle_manager_running; then
+                start_lifecycle_manager
+                echo ""
+            fi
+            
+            echo ""
+            echo "╔════════════════════════════════════════════════════════════════╗"
+            echo "║  Lifecycle Manager Shell                                       ║"
+            echo "╚════════════════════════════════════════════════════════════════╝"
+            echo ""
+            echo "Directories:"
+            echo "  /workspace/shared/         - Shared volume (kubeconfigs, SSH keys)"
+            echo ""
+            echo "Commands:"
+            echo "  task --list                - Show available tasks"
+            echo "  ls /workspace/shared/      - View shared files"
+            echo "  exit                       - Return to host"
+            echo ""
+            
+            ${RUNTIME} exec -it \
+                -w /workspace \
+                "${LIFECYCLE_MANAGER_NAME}" \
+                /bin/bash
+            ;;
+        
+        onboarder)
+            if ! container_running "onboarder"; then
+                log_error "Onboarder container not running"
+                echo "Start a deployment first: ${SCRIPT_NAME} deploy-mcm"
+                return 1
+            fi
+            
+            echo ""
+            echo "╔════════════════════════════════════════════════════════════════╗"
+            echo "║  Onboarder Shell                                               ║"
+            echo "╚════════════════════════════════════════════════════════════════╝"
+            echo ""
+            echo "Directories:"
+            echo "  /docker-workspace/         - Onboarder workspace"
+            echo "  /shared/                   - Shared volume (read-only)"
+            echo ""
+            
+            ${RUNTIME} exec -it \
+                -w /docker-workspace \
+                onboarder \
+                /bin/bash
+            ;;
+        
+        osms)
+            if ! container_running "osms"; then
+                log_error "OSMS container not running"
+                echo "Start a deployment first: ${SCRIPT_NAME} deploy-osms"
+                return 1
+            fi
+            
+            echo ""
+            echo "╔════════════════════════════════════════════════════════════════╗"
+            echo "║  OSMS Shell                                                    ║"
+            echo "╚════════════════════════════════════════════════════════════════╝"
+            echo ""
+            echo "Directories:"
+            echo "  /opt/osms/                 - OSMS workspace"
+            echo "  /shared/                   - Shared volume (read-only)"
+            echo ""
+            
+            ${RUNTIME} exec -it \
+                -w /opt/osms \
+                osms \
+                /bin/bash
+            ;;
+        
+        *)
+            log_error "Unknown shell target: $target"
+            echo ""
+            echo "Available targets:"
+            echo "  lifecycle   - Lifecycle manager (default)"
+            echo "  onboarder   - Onboarder container"
+            echo "  osms        - OSMS container"
+            echo ""
+            echo "Usage: ${SCRIPT_NAME} shell [target]"
+            return 1
+            ;;
+    esac
+}
+
+#==============================================================================
+# BACKUP & RESTORE
+#==============================================================================
+
+# Backup all volumes
+backup_workspace() {
+    local backup_dir="${SCRIPT_DIR}/backups/$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$backup_dir"
+    
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════════╗"
+    echo "║  Backup Workspace                                              ║"
+    echo "╚════════════════════════════════════════════════════════════════╝"
+    echo ""
+    
+    log_info "Backing up to: ${backup_dir}"
+    echo ""
+    
+    # Backup each volume
+    for vol in "$VOL_SHARED" "$VOL_ONBOARDER" "$VOL_OSMS"; do
+        local vol_name=$(echo "$vol" | sed 's/openspace_//')
+        log_step "Backing up ${vol_name}..."
+        
+        ${RUNTIME} run --rm \
+            -v "${vol}:/source:ro" \
+            -v "${backup_dir}:/backup:rw" \
+            alpine:latest \
+            tar czf "/backup/${vol_name}.tar.gz" -C /source . 2>/dev/null
+    done
+    
+    # Backup deployment.yml
+    if [ -f "${DEPLOYMENT_FILE}" ]; then
+        cp "${DEPLOYMENT_FILE}" "${backup_dir}/deployment.yml"
+    fi
+    
+    echo ""
+    log_success "Backup complete"
+    echo ""
+    echo "Backup location:"
+    echo "  ${backup_dir}"
+    echo ""
+    echo "Contents:"
+    ls -lh "${backup_dir}"
+    echo ""
+    echo "To restore:"
+    echo "  ${SCRIPT_NAME} restore ${backup_dir}"
+    echo ""
+}
+
+# Restore from backup
+restore_workspace() {
+    local backup_dir="$1"
+    
+    if [ -z "$backup_dir" ] || [ ! -d "$backup_dir" ]; then
+        echo ""
+        log_error "Backup directory not found: $backup_dir"
+        echo ""
+        echo "Available backups:"
+        if [ -d "${SCRIPT_DIR}/backups" ]; then
+            ls -1d "${SCRIPT_DIR}/backups"/*/ 2>/dev/null | while read dir; do
+                echo "  $(basename $dir)"
+            done
+        else
+            echo "  (none)"
+        fi
+        echo ""
+        echo "Usage: ${SCRIPT_NAME} restore <backup-directory>"
+        return 1
+    fi
+    
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════════╗"
+    echo "║  Restore Workspace                                             ║"
+    echo "╚════════════════════════════════════════════════════════════════╝"
+    echo ""
+    log_warning "This will OVERWRITE current workspace with backup"
+    echo ""
+    echo "Backup: $(basename $backup_dir)"
+    echo ""
+    read -p "Type 'RESTORE' to confirm: " confirm
+    
+    if [ "$confirm" != "RESTORE" ]; then
+        log_info "Cancelled"
+        return 0
+    fi
+    
+    echo ""
+    
+    # Restore each volume
+    for vol in "$VOL_SHARED" "$VOL_ONBOARDER" "$VOL_OSMS"; do
+        local vol_name=$(echo "$vol" | sed 's/openspace_//')
+        local backup_file="${backup_dir}/${vol_name}.tar.gz"
+        
+        if [ -f "$backup_file" ]; then
+            log_step "Restoring ${vol_name}..."
+            
+            ${RUNTIME} run --rm \
+                -v "${vol}:/target:rw" \
+                -v "${backup_dir}:/backup:ro" \
+                alpine:latest \
+                sh -c "cd /target && rm -rf * .* 2>/dev/null; tar xzf /backup/${vol_name}.tar.gz" 2>/dev/null
+        else
+            log_warning "Backup file not found: ${vol_name}.tar.gz"
+        fi
+    done
+    
+    echo ""
+    log_success "Restore complete"
+    echo ""
+}
+
+#==============================================================================
+# CLEANUP
+#==============================================================================
+
+# Clean up everything
+clean_all() {
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════════╗"
+    echo "║  Clean All                                                     ║"
+    echo "╚════════════════════════════════════════════════════════════════╝"
+    echo ""
+    log_warning "This will remove ALL containers and volumes"
+    log_warning "All deployment data will be PERMANENTLY DELETED"
+    echo ""
+    read -p "Type 'DELETE' to confirm: " confirm
+    
+    if [ "$confirm" != "DELETE" ]; then
+        log_info "Cancelled"
+        return 0
+    fi
+    
+    echo ""
+    log_info "Cleaning up..."
+    echo ""
+    
+    # Stop and remove containers
+    for container in "${LIFECYCLE_MANAGER_NAME}" onboarder osms quarterly-updates; do
+        if container_exists "${container}"; then
+            ${RUNTIME} rm -f "${container}" >/dev/null 2>&1
+            log_step "Removed container: ${container}"
+        fi
+    done
+    
+    # Remove volumes
+    for vol in "$VOL_SHARED" "$VOL_ONBOARDER" "$VOL_OSMS"; do
+        if ${RUNTIME} volume inspect "$vol" >/dev/null 2>&1; then
+            ${RUNTIME} volume rm "$vol" >/dev/null 2>&1
+            log_step "Removed volume: ${vol}"
+        fi
+    done
+    
+    echo ""
+    log_success "Cleanup complete"
+    echo ""
+}
+
+#==============================================================================
+# HELP
+#==============================================================================
+
+show_help() {
+    cat << EOF
+
+╔════════════════════════════════════════════════════════════════╗
+║  OpenSpace Platform CLI                                        ║
+╚════════════════════════════════════════════════════════════════╝
+
+USAGE:
+    ${SCRIPT_NAME} <command> [options]
+
+GETTING STARTED:
+    1. Create deployment.yml:
+       cp config/example.deployment.yml config/deployment.yml
+       vi config/deployment.yml
+    
+    2. Initialize:
+       ${SCRIPT_NAME} init
+    
+    3. Deploy:
+       ${SCRIPT_NAME} deploy-mcm
+
+COMMANDS:
+
+  Deployment:
+    init                    Initialize from deployment.yml
+    deploy-mcm              Deploy Management Cluster (MCM)
+    deploy-osms             Deploy OpenSpace Management System
+    deploy-osdc             Deploy OpenSpace Data Cluster
+    deploy-all              Deploy all clusters
+    
+  Updates:
+    update-quarterly        Run quarterly system updates
+    
+  Status & Monitoring:
+    status                  Show platform status
+    logs [task]             View task logs (live streaming)
+    
+  Shell Access (Debugging):
+    shell [target]          Open debug shell
+                            Targets: lifecycle, onboarder, osms
+    
+  Backup & Restore:
+    backup                  Backup all volumes to ./backups/
+    restore <dir>           Restore from backup directory
+    
+  Container Management:
+    start                   Start lifecycle manager
+    stop                    Stop lifecycle manager
+    volumes                 List volumes and locations
+    clean                   Remove everything (destructive!)
+    
+  Help:
+    help                    Show this help message
+
+EXAMPLES:
+
+    # Initial setup
+    ${SCRIPT_NAME} init
+    
+    # Deploy clusters
+    ${SCRIPT_NAME} deploy-mcm
+    ${SCRIPT_NAME} deploy-osms
+    
+    # Monitor
+    ${SCRIPT_NAME} status
+    ${SCRIPT_NAME} logs deploy-mcm
+    
+    # Backup before updates
+    ${SCRIPT_NAME} backup
+    ${SCRIPT_NAME} update-quarterly
+    
+    # Debug if needed
+    ${SCRIPT_NAME} shell
+    ${SCRIPT_NAME} shell onboarder
+
+VOLUME STRATEGY:
+
+    openspace_shared/       Shared between all containers
+                            - Kubeconfigs
+                            - SSH keys
+                            - Generated configs
+    
+    openspace_onboarder/    Onboarder's private workspace
+    
+    openspace_osms/         OSMS's private workspace
+
+For more information, see documentation in ./docs/
+
+EOF
+}
+
+#==============================================================================
+# MAIN DISPATCHER
+#==============================================================================
+
+main() {
+    check_runtime
+    
+    case "${1:-help}" in
+        # Initialization
+        init)
+            init_deployment
+            ;;
+        
+        # Deployment tasks
+        deploy-mcm|deploy-osms|deploy-osdc|deploy-all)
+            exec_task "$@"
+            ;;
+        
+        # Update tasks
+        update-quarterly)
+            exec_task "$@"
+            ;;
+        
+        # Status & logs
+        status)
+            show_status
+            ;;
+        
+        logs)
+            shift
+            view_logs "$@"
+            ;;
+        
+        # Shell access
+        shell)
+            shift
+            open_shell "$@"
+            ;;
+        
+        # Backup & restore
+        backup)
+            backup_workspace
+            ;;
+        
+        restore)
+            shift
+            restore_workspace "$@"
+            ;;
+        
+        # Container management
+        start)
+            start_lifecycle_manager
+            echo ""
+            log_success "Lifecycle manager started"
+            echo ""
+            ;;
+        
+        stop)
+            stop_lifecycle_manager
+            echo ""
+            ;;
+        
+        volumes)
+            list_volumes
+            ;;
+        
+        clean)
+            clean_all
+            ;;
+        
+        # Help
+        help|--help|-h)
+            show_help
+            ;;
+        
+        *)
+            log_error "Unknown command: $1"
+            echo ""
+            echo "Run '${SCRIPT_NAME} help' for usage information"
+            exit 1
+            ;;
+    esac
+}
+
+# Run main
+main "$@"

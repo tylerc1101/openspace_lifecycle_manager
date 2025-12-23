@@ -1,0 +1,26 @@
+- name: Setup {{ target_hosts }} for cluster deployment
+  hosts: "{{ target_hosts }}"
+  become: yes
+  vars:
+    env_dir: "/docker-workspace/config/{{ env_name }}"
+
+  tasks:
+
+    - name: Ensure certificate directory exists
+      ansible.builtin.file:
+        path: "/etc/pki/ca-trust/source/anchors/"
+        state: directory
+        mode: '0755'
+
+    - name: Deploy CA certificate
+      ansible.builtin.copy:
+        src: "{{ env_dir }}/.cache/cacerts.pem"
+        dest: "/etc/pki/ca-trust/source/anchors/cacerts.pem"
+        mode: '0644'
+      register: cert_copy_result
+
+    - name: Update CA trust store
+      ansible.builtin.command:
+        cmd: update-ca-trust extract
+      changed_when: false
+      when: cert_copy_result.changed

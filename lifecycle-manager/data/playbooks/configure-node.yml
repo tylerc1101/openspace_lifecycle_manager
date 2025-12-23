@@ -1,0 +1,192 @@
+- name: Configure "{{ target_hosts }}"
+  hosts: "{{ target_hosts }}"
+  become: true
+
+#  pre_tasks:
+#    - name: Ping hosts
+#      import_tasks: ping_hosts.yml
+#      vars:
+#        target_hosts: "{{ target_hosts }}" 
+
+  tasks:
+    - name: Set Hostname
+      hostname:
+        name: "{{ inventory_hostname }}.{{ domain_name }}"
+
+    - name: Update /etc/resolv.conf with customer DNS servers
+      lineinfile:
+        path: /etc/resolv.conf
+        line: "nameserver {{ item }}"
+        create: yes
+        state: present
+      loop: "{{ customer_dns_servers }}"
+
+    - name: Create repo file
+      copy:
+        src: ../files/kratos.repo
+        dest: /etc/yum.repos.d/kratos.repo
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Install required packages
+      yum:
+        name:
+          - nfs-utils
+          - chrony
+          - make
+          - tar
+          - tuned
+          - container-selinux
+          - iscsi-initiator-utils
+          - iptables
+          - ipvsadm
+          - bind-utils
+          - bash-completion
+        state: present
+        disable_gpg_check: yes
+
+    - name: Configure chrony
+      copy:
+        dest: /etc/chrony.conf
+        content: |
+          server 192.168.2.1 iburst
+          driftfile /var/lib/chrony/drift
+          makestep 1.0 3
+          rtcsync
+          logdir /var/log/chrony
+        mode: '0644'
+
+    - name: Configure sysctl settings for substrate
+      copy:
+        dest: /etc/sysctl.d/50-substrate.conf
+        content: |
+          fs.inotify.max_user_instances=12288
+          fs.inotify.max_user_watches=524288
+        mode: '0644'
+
+    - name: Ensure /etc/rancher/rke2/config.yaml.d directory exists
+      file:
+        path: /etc/rancher/rke2/config.yaml.d
+        state: directory
+        mode: '0755'
+
+    - name: Create 60-rancher.yaml
+      copy:
+        dest: /etc/rancher/rke2/config.yaml.d/60-rancher.yaml
+        content: |
+          {
+          "system-default-registry": ""
+          }
+        mode: '0644'
+
+    - name: Configure kernel modules for KubeVirt
+      copy:
+        dest: /etc/modules-load.d/kube-virt.conf
+        content: |
+          ip_vs
+          ip_vs_rr
+        mode: '0644'
+
+    - name: Disable and stop firewalld
+      systemd:
+        name: firewalld
+        enabled: no
+        state: stopped
+
+    - name: Enable and start chronyd
+      systemd:
+        name: chronyd
+        enabled: yes
+        state: started
+
+    - name: Load ip_vs kernel module
+      modprobe:
+        name: ip_vs
+        state: present
+
+    - name: Load ip_vs_rr kernel module
+      modprobe:
+        name: ip_vs_rr
+        state: present
+
+    - name: Apply sysctl settings
+      command: sysctl --system
+      changed_when: false
+
+    - name: Create sudoers entry for openspace user
+      copy:
+        dest: /etc/sudoers.d/{{ ansible_user }}
+        content: "{{ ansible_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        mode: '0440'
+        validate: 'visudo -cf %s'
+
+#------------------------------------------------------------------------------  
+# MCM Configuration
+#------------------------------------------------------------------------------
+
+    - name: Enable and start iscsid service (Longhorn requirement)
+      systemd:
+        name: iscsid
+        enabled: yes
+        state: started
+      when: inventory_hostname is search('mcm')
+
+
+# alias kubectl
+
+# sudo su -
+# echo 'export PATH=$PATH:/var/lib/rancher/rke2/data/v1.27.15-rke2r1-037873b1c1bc/bin' >> ~/.bashrc
+# echo 'export KUBECONFIG=/etc/rancher/rke2/rke2.yaml' >> ~/.bashrc
+# . ~/.bashrc
+
+#------------------------------------------------------------------------------  
+# OSMS Configuration
+#------------------------------------------------------------------------------
+
+    - name: Ensure /etc/systemd/system/rke2-server.service.d exists
+      file:
+        path: /etc/systemd/system/rke2-server.service.d
+        state: directory
+        mode: '0755'
+      when: inventory_hostname is search('osms')
+
+    - name: Create override.conf for rke2-server
+      copy:
+        dest: /etc/systemd/system/rke2-server.service.d/override.conf
+        content: |
+          [Service]
+          LimitNOFILE=infinity
+        mode: '0644'
+      when: inventory_hostname is search('osms')
+
+    - name: Ensure /etc/systemd/system/rke2-agent.service.d exists
+      file:
+        path: /etc/systemd/system/rke2-agent.service.d
+        state: directory
+        mode: '0755'
+      when: inventory_hostname is search('osms')
+
+    - name: Create override.conf for rke2-agent
+      copy:
+        dest: /etc/systemd/system/rke2-agent.service.d/override.conf
+        content: |
+          [Service]
+          LimitNOFILE=infinity
+        mode: '0644'
+      when: inventory_hostname is search('osms')
+
+    - name: Create rke2-canal.conf
+      copy:
+        dest: /etc/NetworkManager/conf.d/rke2-canal.conf
+        content: |
+          [keyfile]
+          unmanaged-devices=interface-name:cali*;interface-name:flannel*
+      when: inventory_hostname is search('osms')
+
+
+#------------------------------------------------------------------------------  
+# OSDC Configuration
+#------------------------------------------------------------------------------
+
+

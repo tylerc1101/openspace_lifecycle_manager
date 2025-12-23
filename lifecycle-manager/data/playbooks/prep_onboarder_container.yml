@@ -1,0 +1,106 @@
+- name: Prep Onboarder Container
+  hosts: "{{ target_hosts | default('localhost')}}"
+  
+  tasks:
+    # a) Build directories
+    - name: Ensure .cache directory exists
+      file:
+        path: "{{ cache_dir }}"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Write resolv.conf in-place (unsafe)
+      ansible.builtin.copy:
+        content: |
+          nameserver 192.168.2.1
+        dest: /etc/resolv.conf
+        owner: root
+        group: root
+        mode: '0644'
+        unsafe_writes: true
+
+    # b) Modify Makefiles
+    - name: Deploy Makefile
+      template:
+        src: "{{ onboarder_dir }}/files/basekit_makefile.j2"
+        dest: "{{ install_dir }}/Makefile"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Modify common Makefile inside container
+      lineinfile:
+        path: "{{ common_dir }}/Makefile"
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.replacement }}"
+        backrefs: yes
+      loop:
+        - { regexp: '^(SSH_USERNAME\s*\?=).*',      replacement: '\1 {{ ansible_user }}' }
+        - { regexp: '^(SSH_KEY_FILE_NAME\s*\?=).*', replacement: '\1 rancher_ssh_key' }
+        - { regexp: '^(VM_NIC_INTERFACE\s*\?=).*',  replacement: '\1 enp1s0' }
+
+    # c) Create terraform state file
+    - name: Create vm-terraform.tfstate inside container
+      template:
+        src: "{{ onboarder_dir }}/files/basekit_vm-terraform.tfstate.j2"
+        dest: "{{ cache_dir }}/vm-terraform.tfstate"
+        owner: root
+        group: root
+        mode: '0644'
+
+    # d) Copy SSH Key into cache dir
+    - name: Generate rancher SSH key if it doesn't exist
+      community.crypto.openssh_keypair:
+        path: "{{ cache_dir }}/rancher_ssh_key"
+        type: rsa
+        size: 4096
+        state: present
+        force: false
+      register: ssh_key_generated
+
+    - name: Set proper permissions on SSH private key
+      ansible.builtin.file:
+        path: "{{ cache_dir }}/rancher_ssh_key"
+        mode: '0600'
+      when: ssh_key_generated.changed
+
+    - name: Set proper permissions on SSH public key
+      ansible.builtin.file:
+        path: "{{ cache_dir }}/rancher_ssh_key.pub"
+        mode: '0644'
+      when: ssh_key_generated.changed
+
+    # e) Copy in secrets
+    - name: Copy in secrets file
+      ansible.builtin.copy:
+        src: "{{ sample_vsphere_dir }}/{{ item }}"
+        dest: "{{ install_dir }}/{{ item }}"
+        owner: root
+        group: root
+        mode: '0644'
+      loop:
+        - .sops.yaml
+        - secrets.yaml
+
+    # f) Fix cilium bug
+    - name: Disable Cilium encryption in valuesContent block
+      ansible.builtin.replace:
+        path: /docker-workspace/scripts/init-rke2-ansible/gen_ansible_inventory.sh
+        # Match 'encryption:' … then the specific 'enabled: true' before 'type: wireguard'
+        regexp: '(?ms)^(\s*encryption:\s*\n\s*enabled:\s*)true(?=\s*\n\s*type:\s*wireguard)'
+        replace: '\1false'
+
+    # g) Copy in Taskfile
+    - name: Copy in the Taskfile binary
+      ansible.builtin.copy:
+        src: "{{ image_dir }}/task"
+        dest: "/usr/local/bin"
+        owner: root
+        group: root
+        mode: '0755'
+
+    # h) Install sshpass
+    - name: Install sshpass
+      command: "rpm -i {{ image_dir }}/rpms/sshpass*"

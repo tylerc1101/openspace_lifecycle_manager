@@ -1,0 +1,144 @@
+---
+- name: Bootstrap mgmt-kvm server
+  hosts: "{{ target_hosts | default('mgmt_kvm') }}"
+  become: true
+
+#  pre_tasks:
+#    - name: Ping hosts
+#      import_tasks: ../common/ping_hosts.yml
+#      vars:
+#        target_hosts: "{{ target_hosts }}" 
+
+  tasks:
+    - name: Set Hostname
+      hostname:
+        name: "mgmt-kvm.{{ domain_name }}"
+
+    - name: Ensure bridge connections exist and are configured
+      community.general.nmcli:
+        conn_name: "{{ item['con-name'] }}"
+        ifname: "{{ item.ifname }}"
+        type: "{{ item.type | default('bridge') }}"
+        state: present
+        autoconnect: yes
+        method4: manual
+        ip4: "{{ item.address | default(omit) }}"
+        gw4: "{{ item.gateway | default(omit) }}"
+        dns4: "{{ (item.dns is string) | ternary([item.dns], item.dns | default(omit)) }}"
+        dns4_search: ["{{ domain_name }}"]
+        method6: disabled
+      loop: "{{ interfaces }}"
+
+    - name: Create/attach bridge-slave profiles for member NICs
+      community.general.nmcli:
+        conn_name: "{{ item.0['con-name'] }}-{{ item.1 }}"
+        ifname: "{{ item.1 }}"
+        type: bridge-slave
+        master: "{{ item.0['con-name'] }}"
+        autoconnect: yes
+        method4: disabled
+        method6: disabled
+        state: present
+      loop: "{{ interfaces | subelements('interfaces', skip_missing=True) }}"
+
+    - name: Remove existing physical interface connections
+      community.general.nmcli:
+        conn_name: "{{ item.1 }}"
+        state: absent
+      loop: "{{ interfaces | subelements('interfaces', skip_missing=True) }}"
+      ignore_errors: yes
+
+    - name: Create disabled physical interface connections
+      community.general.nmcli:
+        conn_name: "{{ item.1 }}"
+        ifname: "{{ item.1 }}"
+        type: ethernet
+        method4: disabled
+        method6: disabled
+        state: present
+      loop: "{{ interfaces | subelements('interfaces', skip_missing=True) }}"
+
+    - name: Check if member NICs (slaves) are already active
+      ansible.builtin.command:
+        cmd: "nmcli -g GENERAL.STATE connection show {{ item.0['con-name'] }}-{{ item.1 }}"
+      loop: "{{ interfaces | subelements('interfaces', skip_missing=True) }}"
+      register: slave_states
+      changed_when: false
+      failed_when: false
+
+    #- name: Bring up member NICs (slaves) if not already active
+    #  ansible.builtin.command:
+    #    cmd: "nmcli connection up {{ item.item.0['con-name'] }}-{{ item.item.1 }}"
+    #  loop: "{{ slave_states.results }}"
+    #  when: item.rc == 0 and 'activated' not in item.stdout
+    #  changed_when: true
+
+    - name: Check if bridges are already active
+      ansible.builtin.command:
+        cmd: "nmcli -g GENERAL.STATE connection show {{ item['con-name'] }}"
+      loop: "{{ interfaces }}"
+      register: bridge_states
+      changed_when: false
+      failed_when: false
+
+    - name: Bring up bridges if not already active
+      ansible.builtin.command:
+        cmd: "nmcli connection up {{ item.item['con-name'] }}"
+      loop: "{{ bridge_states.results }}"
+      when: item.rc == 0 and 'activated' not in item.stdout
+      changed_when: true
+
+    - name: Update /etc/resolv.conf with customer DNS servers
+      lineinfile:
+        path: /etc/resolv.conf
+        line: "nameserver {{ item }}"
+        create: yes
+        state: present
+      loop: "{{ customer_dns_servers }}"
+
+    - name: Create repo file
+      copy:
+        src: ../files/kratos.repo
+        dest: /etc/yum.repos.d/kratos.repo
+        owner: root
+        group: root
+        mode: "0644"
+        
+    - name: Install required packages
+      yum:
+        name:
+          - "@Development Tools"
+          - "@Virtualization Platform"
+          - "@Container Management"
+          - "@Headless Management"
+          - gcc
+          - openssl-devel
+          - bzip2-devel
+          - libffi-devel
+          - zlib-devel
+          - xz-devel
+          - readline-devel
+          - sqlite-devel
+          - wget
+          - virt-install
+          - cockpit-machines
+          - libcdio
+          - libguestfs
+        state: present
+        disable_gpg_check: yes
+
+    - name: Start/Enable services
+      systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: yes
+      loop:
+        - libvirtd
+        - cockpit
+
+    - name: Create sudoers entry for user
+      copy:
+        dest: /etc/sudoers.d/{{ ansible_user }}
+        content: "{{ ansible_user }} ALL=(ALL) NOPASSWD:ALL\n"
+        mode: '0440'
+        validate: 'visudo -cf %s'

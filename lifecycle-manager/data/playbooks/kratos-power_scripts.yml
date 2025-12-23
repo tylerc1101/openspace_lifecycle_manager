@@ -1,0 +1,11 @@
+- name: Deploy power scripts
+  hosts: mgmt_kvm
+  become: yes
+  tasks:
+    - name: Create scripts directory
+      file:
+        path: /opt/kratos/power_scripts
+        state: directory
+        mode: "0755"
+
+    - name: Deploy power on script

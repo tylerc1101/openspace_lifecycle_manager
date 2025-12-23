@@ -1,0 +1,210 @@
+# lifecycle-manager/data/taskfiles/onboarder.yml
+version: '3'
+
+vars:
+  CONTAINER_NAME: onboarder
+  CONTAINER_IMAGE: 'onboarder:{{.ONBOARDER_VERSION}}'
+  ONBOARDER_WORKSPACE: /docker-workspace
+  ONBOARDER_VOLUME: openspace_onboarder
+
+tasks:
+  #============================================================================
+  # Container Management
+  #============================================================================
+  start-container:
+    internal: true
+    desc: "Start onboarder container if not running"
+    cmds:
+      - |
+        if ! docker ps --filter "name={{.CONTAINER_NAME}}" --format "{{{{.Names}}" | grep -q "^{{.CONTAINER_NAME}}$"; then
+          echo "Starting onboarder container..."
+          docker run -d \
+            --name {{.CONTAINER_NAME}} \
+            --network host \
+            -v {{.ONBOARDER_VOLUME}}:{{.ONBOARDER_WORKSPACE}}:rw \
+            -v {{.SHARED_DIR}}:/shared:ro \
+            {{.CONTAINER_IMAGE}} \
+            sleep infinity
+          echo "✓ Onboarder container started"
+        else
+          echo "Onboarder container already running"
+        fi
+
+  stop-container:
+    desc: "Stop onboarder container"
+    cmds:
+      - docker stop {{.CONTAINER_NAME}} || true
+      - echo "✓ Onboarder container stopped"
+
+  remove-container:
+    desc: "Remove onboarder container"
+    cmds:
+      - docker rm -f {{.CONTAINER_NAME}} || true
+      - echo "✓ Onboarder container removed"
+
+  #============================================================================
+  # Preparation
+  #============================================================================
+  prepare:
+    desc: "Prepare onboarder environment"
+    cmds:
+      - task: start-container
+      - task: copy-configs
+      - task: copy-ssh-keys
+
+  copy-configs:
+    internal: true
+    desc: "Copy generated configs into onboarder"
+    cmds:
+      - echo "Copying Makefile into onboarder..."
+      - docker cp {{.SHARED_DIR}}/generated/Makefile {{.CONTAINER_NAME}}:{{.ONBOARDER_WORKSPACE}}/Makefile
+      - docker cp {{.SHARED_DIR}}/deployment.yml {{.CONTAINER_NAME}}:{{.ONBOARDER_WORKSPACE}}/config/deployment.yml
+      - echo "✓ Configs copied"
+
+  copy-ssh-keys:
+    internal: true
+    desc: "Copy SSH keys into onboarder"
+    cmds:
+      - echo "Copying SSH keys..."
+      - docker exec {{.CONTAINER_NAME}} mkdir -p {{.ONBOARDER_WORKSPACE}}/.ssh
+      - docker cp {{.SHARED_DIR}}/.ssh/. {{.CONTAINER_NAME}}:{{.ONBOARDER_WORKSPACE}}/.ssh/
+      - docker exec {{.CONTAINER_NAME}} chmod 700 {{.ONBOARDER_WORKSPACE}}/.ssh
+      - docker exec {{.CONTAINER_NAME}} chmod 600 {{.ONBOARDER_WORKSPACE}}/.ssh/*
+      - echo "✓ SSH keys copied"
+
+  #============================================================================
+  # Node Preparation
+  #============================================================================
+  node-prep:
+    desc: "Prepare cluster nodes"
+    vars:
+      HOSTS: '{{.HOSTS | default "management_cluster"}}'
+    cmds:
+      - python3 {{.DATA_DIR}}/run_task.py
+          --task-id=node-prep-{{.HOSTS}}
+          --hosts={{.HOSTS}}
+          --file={{.DATA_DIR}}/playbooks/node_prep.yml
+          --kind=ansible
+
+  install-rke2-selinux:
+    desc: "Install RKE2 SELinux on nodes"
+    vars:
+      HOSTS: '{{.HOSTS | default "management_cluster"}}'
+    cmds:
+      - python3 {{.DATA_DIR}}/run_task.py
+          --task-id=install-rke2-selinux-{{.HOSTS}}
+          --hosts={{.HOSTS}}
+          --file={{.DATA_DIR}}/playbooks/install_rke2_selinux.yml
+          --kind=ansible
+
+  #============================================================================
+  # MCM Deployment (Full Onboarder Flow)
+  #============================================================================
+  deploy-mcm:
+    desc: "Deploy complete MCM stack"
+    cmds:
+      - task: prepare
+      - task: node-prep
+        vars: { HOSTS: management_cluster }
+      - task: install-rke2-selinux
+        vars: { HOSTS: management_cluster }
+      - task: deploy-rke2-cluster
+      - task: bootstrap-container-images
+      - task: deploy-harbor
+      - task: load-darksite-bundles
+      - task: deploy-rancher
+      - task: terraform-rancher
+      - task: deploy-gitea
+      - task: deploy-argocd
+      - task: get-kubeconfig
+
+  #============================================================================
+  # Individual Onboarder Steps
+  #============================================================================
+  deploy-rke2-cluster:
+    desc: "Deploy RKE2 cluster"
+    cmds:
+      - task: start-container
+      - python3 {{.DATA_DIR}}/run_task.py
+          --task-id=deploy-rke2-cluster
+          --kind=shell
+          --command="docker exec -w {{.ONBOARDER_WORKSPACE}} {{.CONTAINER_NAME}} make ansible-deploy-rke2-cluster ENVIRONMENT=install"
+
+  bootstrap-container-images:
+    desc: "Bootstrap container images"
+    cmds:
+      - python3 {{.DATA_DIR}}/run_task.py
+          --task-id=bootstrap-container-images
+          --kind=shell
+          --command="docker exec -w {{.ONBOARDER_WORKSPACE}} {{.CONTAINER_NAME}} make bootstrap-container-images-run ENVIRONMENT=install"
+
+  deploy-harbor:
+    desc: "Deploy Harbor registry"
+    cmds:
+      - python3 {{.DATA_DIR}}/run_task.py
+          --task-id=deploy-harbor
+          --kind=shell
+          --command="docker exec -w {{.ONBOARDER_WORKSPACE}} {{.CONTAINER_NAME}} make helmfile-install HELMFILE_CHART=harbor ENVIRONMENT=install"
+
+  load-darksite-bundles:
+    desc: "Load darksite bundles into Harbor"
+    cmds:
+      - python3 {{.DATA_DIR}}/run_task.py
+          --task-id=load-darksite-bundles
+          --kind=shell
+          --command="docker exec -w {{.ONBOARDER_WORKSPACE}} {{.CONTAINER_NAME}} make load-darksite-bundles ENVIRONMENT=install"
+
+  deploy-rancher:
+    desc: "Deploy Rancher"
+    cmds:
+      - python3 {{.DATA_DIR}}/run_task.py
+          --task-id=deploy-rancher
+          --kind=shell
+          --command="docker exec -w {{.ONBOARDER_WORKSPACE}} {{.CONTAINER_NAME}} make helmfile-install HELMFILE_CHART=rancher ENVIRONMENT=install"
+
+  terraform-rancher:
+    desc: "Bootstrap Rancher with Terraform"
+    cmds:
+      - python3 {{.DATA_DIR}}/run_task.py
+          --task-id=terraform-rancher
+          --kind=shell
+          --command="docker exec -w {{.ONBOARDER_WORKSPACE}} {{.CONTAINER_NAME}} make terraform-rancher-bootstrap-apply ENVIRONMENT=install"
+
+  deploy-gitea:
+    desc: "Deploy Gitea"
+    cmds:
+      - python3 {{.DATA_DIR}}/run_task.py
+          --task-id=deploy-gitea
+          --kind=shell
+          --command="docker exec -w {{.ONBOARDER_WORKSPACE}} {{.CONTAINER_NAME}} make install-gitea ENVIRONMENT=install"
+
+  deploy-argocd:
+    desc: "Deploy ArgoCD"
+    cmds:
+      - python3 {{.DATA_DIR}}/run_task.py
+          --task-id=deploy-argocd
+          --kind=shell
+          --command="docker exec -w {{.ONBOARDER_WORKSPACE}} {{.CONTAINER_NAME}} make install-argocd ENVIRONMENT=install"
+
+  #============================================================================
+  # Kubeconfig Retrieval
+  #============================================================================
+  get-kubeconfig:
+    desc: "Retrieve MCM kubeconfig"
+    cmds:
+      - echo "Retrieving MCM kubeconfig..."
+      - docker cp {{.CONTAINER_NAME}}:{{.ONBOARDER_WORKSPACE}}/kubeconfig/mcm.yaml {{.SHARED_DIR}}/kubeconfigs/mcm.yaml
+      - echo "✓ Kubeconfig saved to {{.SHARED_DIR}}/kubeconfigs/mcm.yaml"
+
+  #============================================================================
+  # Destruction
+  #============================================================================
+  destroy-mcm:
+    desc: "Destroy MCM cluster"
+    cmds:
+      - task: start-container
+      - python3 {{.DATA_DIR}}/run_task.py
+          --task-id=destroy-mcm
+          --kind=shell
+          --command="docker exec -w {{.ONBOARDER_WORKSPACE}} {{.CONTAINER_NAME}} make destroy-all ENVIRONMENT=install"
+      - task: remove-container

@@ -1,0 +1,18 @@
+apiVersion: sriovnetwork.openshift.io/v1
+kind: SriovNetworkNodePolicy
+metadata:
+  name: policy-osdc-1
+  namespace: cattle-sriov-system
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: osdc-1
+  resourceName: intelnics
+  mtu: 9000
+  numVfs: 64
+  nicSelector:
+    deviceID: "1593"
+    vendor: "8086"
+    rootDevices:
+    - "0000:3d:00.3"
+    - "0000:99:00.3"
+  deviceType: netdevice

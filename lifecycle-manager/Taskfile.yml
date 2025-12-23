@@ -1,0 +1,280 @@
+# lifecycle-manager/Taskfile.yml (Build System)
+version: '3'
+
+# Global setting - don't echo commands
+silent: true
+
+vars:
+  # Version Configuration
+  LIFECYCLE_VERSION: 1.2.0
+  ONBOARDER_VERSION: v3.5.0-rc7
+  
+  # Registry Configuration
+  REGISTRY: your-registry.com
+  IMAGE_NAME: openspace-lifecycle-manager
+  IMAGE_TAG: '{{.LIFECYCLE_VERSION}}'
+  
+  # Paths
+  DOWNLOAD_DIR: onboarder-image
+  DOWNLOAD_SCRIPT: scripts/download-onboarder.sh
+  
+  # Runtime
+  RUNTIME: podman
+  
+  # Artifactory
+  ARTIFACTORY_URL: https://bits.devops.kratosdefense.com
+  ARTIFACTORY_REPO: kratos-openspace-packages-staging-local/openspace-rancher-onboarder
+
+tasks:
+  # ==========================================================================
+  # Help
+  # ==========================================================================
+  
+  default:
+    desc: "Show available tasks"
+    cmds:
+      - task --list
+  
+  help:
+    desc: "Show detailed help"
+    cmds:
+      - |
+        echo "╔════════════════════════════════════════════════════════════════╗"
+        echo "║  OpenSpace Lifecycle Manager - Build System                   ║"
+        echo "╚════════════════════════════════════════════════════════════════╝"
+        echo ""
+        echo "Version: {{.LIFECYCLE_VERSION}}"
+        echo "Onboarder: {{.ONBOARDER_VERSION}}"
+        echo ""
+        echo "Development Workflow:"
+        echo "  1. task build    # Build with 'latest' tag"
+        echo "  2. task test     # Test the build"
+        echo "  3. task release  # Tag as {{.LIFECYCLE_VERSION}} and push"
+        echo ""
+        echo "Run 'task --list' for all available tasks"
+
+  # ==========================================================================
+  # Onboarder Download
+  # ==========================================================================
+  
+  download-onboarder:
+    desc: "Download onboarder from Artifactory (prompts for credentials)"
+    cmds:
+      - |
+        ONBOARDER_VERSION={{.ONBOARDER_VERSION}} \
+        ARTIFACTORY_URL={{.ARTIFACTORY_URL}} \
+        ARTIFACTORY_REPO={{.ARTIFACTORY_REPO}} \
+        DOWNLOAD_DIR={{.DOWNLOAD_DIR}} \
+        bash {{.DOWNLOAD_SCRIPT}}
+      - |
+        echo ""
+        read -p "Load image into {{.RUNTIME}} now? [Y/n]: " load_now
+        if [ "$load_now" != "n" ] && [ "$load_now" != "N" ]; then
+          task load-onboarder
+        else
+          echo ""
+          echo "To load later, run: task load-onboarder"
+        fi
+  
+  load-onboarder:
+    desc: "Load onboarder image into container runtime"
+    cmds:
+      - |
+        TARBALL=$(find {{.DOWNLOAD_DIR}} -name "onboarder-{{.ONBOARDER_VERSION}}.tar*" -type f 2>/dev/null | head -n1)
+        if [ -z "$TARBALL" ]; then
+          echo "✗ Onboarder tarball not found"
+          echo ""
+          echo "Run: task download-onboarder"
+          exit 1
+        fi
+        echo "→ Loading onboarder image from: $(basename $TARBALL)"
+        echo ""
+        {{.RUNTIME}} load -i "$TARBALL"
+        echo ""
+        echo "✓ Onboarder image loaded"
+        echo ""
+        echo "Available onboarder images:"
+        {{.RUNTIME}} images | grep onboarder || echo "  (none)"
+  
+  verify-onboarder:
+    desc: "Verify onboarder image is available"
+    cmds:
+      - |
+        if {{.RUNTIME}} images | grep -q "onboarder.*{{.ONBOARDER_VERSION}}"; then
+          echo "✓ Onboarder {{.ONBOARDER_VERSION}} is available"
+        else
+          echo "✗ Onboarder {{.ONBOARDER_VERSION}} not found"
+          echo ""
+          echo "Run: task download-onboarder"
+          exit 1
+        fi
+  
+  clean-onboarder:
+    desc: "Remove downloaded onboarder files"
+    cmds:
+      - echo "⚠  Removing downloaded onboarder files..."
+      - rm -rf {{.DOWNLOAD_DIR}}
+      - echo "✓ Cleaned"
+
+  # ==========================================================================
+  # Build - Development
+  # ==========================================================================
+  
+  build:
+    desc: "Build as 'latest' for development"
+    deps:
+      - verify-onboarder
+    cmds:
+      - |
+        echo "╔════════════════════════════════════════════════════════════════╗"
+        echo "║  Building OpenSpace Lifecycle Manager (Development)           ║"
+        echo "╚════════════════════════════════════════════════════════════════╝"
+        echo ""
+        echo "Target Version: {{.LIFECYCLE_VERSION}}"
+        echo "Build Tag: latest"
+        echo "Base Image: onboarder:{{.ONBOARDER_VERSION}}"
+        echo ""
+        {{.RUNTIME}} build \
+          --build-arg ONBOARDER_VERSION={{.ONBOARDER_VERSION}} \
+          --build-arg LIFECYCLE_VERSION={{.LIFECYCLE_VERSION}} \
+          -t {{.IMAGE_NAME}}:latest \
+          .
+        echo ""
+        echo "╔════════════════════════════════════════════════════════════════╗"
+        echo "║  Build Complete                                                ║"
+        echo "╚════════════════════════════════════════════════════════════════╝"
+        echo ""
+        echo "Image: {{.IMAGE_NAME}}:latest"
+        echo ""
+        echo "Next steps:"
+        echo "  task test     # Test the build"
+        echo "  task release  # Release as v{{.LIFECYCLE_VERSION}}"
+
+  # ==========================================================================
+  # Testing
+  # ==========================================================================
+  
+  test:
+    desc: "Test the latest build"
+    cmds:
+      - |
+        echo "FUTURE: Implement Lifecycle Manager tests"
+  
+  shell:
+    desc: "Open shell in latest image"
+    cmds:
+      - echo "Opening shell in lifecycle manager:latest..."
+      - echo "Type 'exit' to return"
+      - echo ""
+      - |
+        {{.RUNTIME}} run --rm -it \
+          -v openspace_shared_test:/workspace/shared:rw \
+          {{.IMAGE_NAME}}:latest \
+          /bin/bash
+
+  # ==========================================================================
+  # Release
+  # ==========================================================================
+  
+  tag-release:
+    desc: "Tag latest as release version"
+    cmds:
+      - |
+        if ! {{.RUNTIME}} images | grep -q "{{.IMAGE_NAME}}.*latest"; then
+          echo "✗ No 'latest' image found to tag"
+          echo ""
+          echo "Run: task build"
+          exit 1
+        fi
+        echo "Tagging release..."
+        echo "  {{.IMAGE_NAME}}:latest → {{.IMAGE_NAME}}:{{.IMAGE_TAG}}"
+        {{.RUNTIME}} tag {{.IMAGE_NAME}}:latest {{.IMAGE_NAME}}:{{.IMAGE_TAG}}
+        echo "✓ Tagged: {{.IMAGE_NAME}}:{{.IMAGE_TAG}}"
+  
+  push:
+    desc: "Push versioned image to registry"
+    cmds:
+      - |
+        if ! {{.RUNTIME}} images | grep -q "{{.IMAGE_NAME}}.*{{.IMAGE_TAG}}"; then
+          echo "✗ Version {{.IMAGE_TAG}} not tagged"
+          echo ""
+          echo "Run: task tag-release"
+          exit 1
+        fi
+        echo "Pushing to registry..."
+        {{.RUNTIME}} tag {{.IMAGE_NAME}}:{{.IMAGE_TAG}} {{.REGISTRY}}/{{.IMAGE_NAME}}:{{.IMAGE_TAG}}
+        {{.RUNTIME}} push {{.REGISTRY}}/{{.IMAGE_NAME}}:{{.IMAGE_TAG}}
+        echo "✓ Pushed: {{.REGISTRY}}/{{.IMAGE_NAME}}:{{.IMAGE_TAG}}"
+  
+  release-check:
+    desc: "Pre-release checklist"
+    cmds:
+      - |
+        echo "╔════════════════════════════════════════════════════════════════╗"
+        echo "║  Release Readiness Check                                      ║"
+        echo "╚════════════════════════════════════════════════════════════════╝"
+        echo ""
+        echo "Target Version: {{.LIFECYCLE_VERSION}}"
+        echo ""
+        echo "Checks:"
+        {{.RUNTIME}} images | grep -q "{{.IMAGE_NAME}}.*latest" && \
+          echo "  ✓ Latest image built" || \
+          echo "  ✗ Latest image not found (run: task build)"
+        test -f ../CHANGELOG.md && \
+          echo "  ✓ CHANGELOG.md exists" || \
+          echo "  ✗ CHANGELOG.md missing"
+        grep -q "{{.LIFECYCLE_VERSION}}" ../CHANGELOG.md 2>/dev/null && \
+          echo "  ✓ Version in CHANGELOG" || \
+          echo "  ⚠  Version not in CHANGELOG"
+        test -f ../docs/versions.md && \
+          echo "  ✓ versions.md exists" || \
+          echo "  ⚠  versions.md missing"
+        task verify-onboarder >/dev/null 2>&1 && \
+          echo "  ✓ Onboarder image ready" || \
+          echo "  ✗ Onboarder missing"
+        echo ""
+  
+  release:
+    desc: "Complete release process"
+    deps:
+      - release-check
+      - test
+      - tag-release
+    cmds:
+      - |
+        echo ""
+        echo "╔════════════════════════════════════════════════════════════════╗"
+        echo "║  Release: v{{.LIFECYCLE_VERSION}}                             ║"
+        echo "╚════════════════════════════════════════════════════════════════╝"
+        echo ""
+        echo "✓ Build tested and tagged as {{.LIFECYCLE_VERSION}}"
+        echo ""
+        echo "Next steps:"
+        echo "  1. git add -A"
+        echo "  2. git commit -m 'Release v{{.LIFECYCLE_VERSION}}'"
+        echo "  3. git tag -a v{{.LIFECYCLE_VERSION}} -m 'Release {{.LIFECYCLE_VERSION}}'"
+        echo "  4. git push origin main --tags"
+        echo "  5. task push"
+        echo ""
+
+  # ==========================================================================
+  # Cleanup
+  # ==========================================================================
+  
+  clean:
+    desc: "Remove built images"
+    cmds:
+      - echo "Removing lifecycle manager images..."
+      - '{{.RUNTIME}} rmi {{.IMAGE_NAME}}:{{.IMAGE_TAG}} 2>/dev/null || true'
+      - '{{.RUNTIME}} rmi {{.IMAGE_NAME}}:latest 2>/dev/null || true'
+      - echo "✓ Cleaned"
+  
+  clean-all:
+    desc: "Remove everything (images, downloads, volumes)"
+    deps:
+      - clean
+      - clean-onboarder
+    cmds:
+      - echo "Removing test volumes..."
+      - '{{.RUNTIME}} volume rm openspace_shared_test 2>/dev/null || true'
+      - echo "✓ Complete cleanup done"

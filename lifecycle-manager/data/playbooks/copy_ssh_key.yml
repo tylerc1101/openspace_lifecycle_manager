@@ -1,0 +1,45 @@
+---
+- name: Bootstrap SSH key to one or more target hosts
+  hosts: "{{ target_hosts }}"
+  gather_facts: no
+  become: no  # IMPORTANT: We don't need sudo to copy SSH keys to our own user
+  
+  vars:
+    env_name: "{{ env_name | mandatory }}"
+    target_user: "{{ ansible_user | default('kratos') }}"
+    ssh_pubkey_path: "{{ install_dir }}/.cache/rancher_ssh_key.pub"
+
+  tasks:
+    - name: Validate that ssh_pubkey_path exists (on localhost)
+      ansible.builtin.stat:
+        path: "{{ ssh_pubkey_path }}"
+      delegate_to: localhost
+      register: pub_stat
+      changed_when: false
+
+    - name: Fail if ssh_pubkey_path does not exist
+      ansible.builtin.fail:
+        msg: "Public key file not found at {{ ssh_pubkey_path }}"
+      when: not pub_stat.stat.exists
+      delegate_to: localhost
+
+    - name: Read public key content
+      ansible.builtin.slurp:
+        src: "{{ ssh_pubkey_path }}"
+      delegate_to: localhost
+      register: pubkey_content
+
+    - name: Ensure ~/.ssh directory exists on target
+      ansible.builtin.file:
+        path: "~/.ssh"
+        state: directory
+        mode: '0700'
+
+    - name: Add public key to authorized_keys
+      ansible.builtin.authorized_key:
+        user: "{{ target_user }}"
+        state: present
+        key: "{{ pubkey_content.content | b64decode | trim }}"
+        
+    - name: Test SSH key authentication
+      ansible.builtin.ping:
