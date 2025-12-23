@@ -2,39 +2,19 @@
 version: '3'
 
 vars:
-  DATA_DIR: /workspace/data
-  SHARED_DIR: /workspace/shared
-  CACHE_DIR: /workspace/shared/.cache
-  DEPLOYMENT_FILE: /workspace/shared/deployment.yml
-  
-  # These will be read from deployment.yml during init
-  DEPLOYMENT_TYPE: '{{.DEPLOYMENT_TYPE | default "basekit"}}'
+  DATA_DIR: '{{.OLM_DATA_DIR}}'
+  CACHE_DIR: '{{.ONBOARDER_CACHE_DIR}}'
+  DEPLOYMENT_FILE: '{{.OLM_WORK_DIR}}/deployment.yml'
+  DEPLOYMENT_TYPE: '{{.DEPLOYMENT_TYPE}}'
+
 
 includes:
   # Infrastructure tasks (basekit, aws, azure, etc.)
   infra:
-    taskfile: '{{.DATA_DIR}}/taskfiles/infra/{{.DEPLOYMENT_TYPE}}.yml'
-    optional: true
-    vars:
-      DATA_DIR: '{{.DATA_DIR}}'
-      SHARED_DIR: '{{.SHARED_DIR}}'
-      CACHE_DIR: '{{.CACHE_DIR}}'
-
+    taskfile: '{{.DATA_DIR}}/taskfiles/{{.DEPLOYMENT_TYPE}}.yml'
   # Onboarder tasks (MCM deployment)
   onboarder:
     taskfile: '{{.DATA_DIR}}/taskfiles/onboarder.yml'
-    vars:
-      DATA_DIR: '{{.DATA_DIR}}'
-      SHARED_DIR: '{{.SHARED_DIR}}'
-      CACHE_DIR: '{{.CACHE_DIR}}'
-
-  # OSMS tasks
-  osms:
-    taskfile: '{{.DATA_DIR}}/taskfiles/osms.yml'
-    vars:
-      DATA_DIR: '{{.DATA_DIR}}'
-      SHARED_DIR: '{{.SHARED_DIR}}'
-      CACHE_DIR: '{{.CACHE_DIR}}'
 
 tasks:
   #============================================================================
@@ -45,8 +25,6 @@ tasks:
     cmds:
       - echo "Initializing deployment..."
       - ansible-playbook {{.DATA_DIR}}/playbooks/init_deployment.yml
-        -e deployment_file={{.DEPLOYMENT_FILE}}
-        -e output_dir={{.SHARED_DIR}}
       - echo "✓ Initialization complete"
 
   validate:

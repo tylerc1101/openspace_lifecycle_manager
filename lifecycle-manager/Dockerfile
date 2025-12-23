@@ -52,7 +52,7 @@ RUN curl -sL "https://github.com/go-task/task/releases/download/v${TASKFILE_VERS
 RUN mkdir -p /openspace/data
 
 # Copy top-level Taskfile
-COPY data/taskfiles/Taskfile.yml /openspace/Taskfile.yml
+COPY data/taskfiles/main.yml /openspace/Taskfile.yml
 
 # Copy all orchestration data (playbooks, scripts, templates, taskfiles)
 COPY data/ /openspace/data/
