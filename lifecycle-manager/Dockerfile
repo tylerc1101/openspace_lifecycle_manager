@@ -82,6 +82,9 @@ RUN echo '' >> /root/.bashrc && \
     echo '# Lifecycle Manager Prompt' >> /root/.bashrc && \
     echo 'export PS1="\[\e[32m\]lifecycle_mgr\[\e[34m\]:${OLM_LIFECYCLE_VERSION} \[\e[37m\]\w\[\e[0m\] # "' >> /root/.bashrc
 
+RUN echo 'alias ls="ls --color=auto"' >> /root/.bashrc && \
+    echo 'export LS_COLORS=${LS_COLORS:-"di=34:ln=36:so=35:pi=33:ex=32"}' >> /root/.bashrc
+
 
 # =============================================================================
 # Default Command
