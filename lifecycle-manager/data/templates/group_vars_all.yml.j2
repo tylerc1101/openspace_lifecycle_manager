@@ -120,19 +120,6 @@ nfs_path: "{{ storage.nfs.path }}"
 {% endif %}
 
 # ==============================================================================
-# Onboarder Directory Paths
-# ==============================================================================
-config_dir: "/docker-workspace/config"
-install_dir: "{{ config_dir }}/install"
-sample_vsphere_dir: "{{ config_dir }}/sample-vsphere"
-cache_dir: "{{ install_dir }}/.cache"
-common_dir: "{{ config_dir }}/common"
-
-image_dir: "/docker-workspace/images"
-data_dir: "/docker-workspace/data"
-onboarder_dir: "{{ data_dir }}/onboarders/{{ deployment.onboarder_version }}"
-
-# ==============================================================================
 # VIRTUAL IP ADDRESSES
 # ==============================================================================
 # These VIPs are used for cluster access and load balancing

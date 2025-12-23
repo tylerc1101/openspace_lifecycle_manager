@@ -2,15 +2,16 @@
 # OpenSpace Lifecycle Manager - Complete installer with onboarder wrapped
 
 # =============================================================================
-# Build Arguments
-# =============================================================================
-ARG ONBOARDER_VERSION=3.5.0-rc7
-ARG LIFECYCLE_VERSION=1.1.0
-
-# =============================================================================
 # Base Image - Onboarder
 # =============================================================================
-FROM onboarder:${ONBOARDER_VERSION}
+ARG ONBOARDER_VERSION
+FROM onboarder-full:${ONBOARDER_VERSION}
+
+# =============================================================================
+# Build Arguments
+# =============================================================================
+ARG ONBOARDER_VERSION
+ARG LIFECYCLE_VERSION
 
 # =============================================================================
 # Metadata
@@ -46,29 +47,41 @@ RUN curl -sL "https://github.com/go-task/task/releases/download/v${TASKFILE_VERS
 # Setup Orchestration Workspace
 # =============================================================================
 
-# Create lifecycle_manager structure
+# Create openspace structure
 # Note: Onboarder already has /docker-workspace
-RUN mkdir -p /lifecycle_manager/data
+RUN mkdir -p /openspace/data
 
 # Copy top-level Taskfile
-COPY data/taskfiles/Taskfile.yml /lifecycle_manager/Taskfile.yml
+COPY data/taskfiles/Taskfile.yml /openspace/Taskfile.yml
 
 # Copy all orchestration data (playbooks, scripts, templates, taskfiles)
-COPY data/ /lifecycle_manager/data/
+COPY data/ /openspace/data/
 
 # =============================================================================
 # Environment Setup
 # =============================================================================
 
 # Set working directory
-WORKDIR /lifecycle_manager
+WORKDIR /openspace
 
-# Environment variables
-ENV ONBOARDER_DIR=/docker-workspace \
-    ORCHESTRATION_DIR=/lifecycle_manager \
-    DATA_DIR=/lifecycle_manager/data \
-    LIFECYCLE_VERSION=${LIFECYCLE_VERSION} \
+# Onboarder Environment variables
+ENV ONBOARDER_WORK_DIR=/docker-workspace \
+    ONBOARDER_CONFIG_DIR=/docker-workspace/config \
+    ONBOARDER_COMMON_DIR=/docker-workspace/config/common \
+    ONBOARDER_SAMPLE_VSPHERE_DIR=/docker-workspace/config/sample-vsphere \
+    ONBOARDER_INSTALL_DIR=/docker-workspace/config/install \
+    ONBOARDER_CACHE_DIR=/docker-workspace/config/install/.cache
     ONBOARDER_VERSION=${ONBOARDER_VERSION}
+
+# Lifecycle Manager Environment variables
+ENV OLM_WORK_DIR=/openspace \
+    OLM_DATA_DIR=/openspace/data \
+    OLM_LIFECYCLE_VERSION=${LIFECYCLE_VERSION}
+
+RUN echo '' >> /root/.bashrc && \
+    echo '# Lifecycle Manager Prompt' >> /root/.bashrc && \
+    echo 'export PS1="\[\e[32m\]lifecycle_mgr\[\e[34m\]:${OLM_LIFECYCLE_VERSION} \[\e[37m\]\w\[\e[0m\] # "' >> /root/.bashrc
+
 
 # =============================================================================
 # Default Command

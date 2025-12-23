@@ -168,7 +168,6 @@ tasks:
       - echo ""
       - |
         {{.RUNTIME}} run --rm -it \
-          -v openspace_shared_test:/workspace/shared:rw \
           {{.IMAGE_NAME}}:latest \
           /bin/bash
 
