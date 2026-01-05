@@ -4,69 +4,69 @@ tasks:
   copy-ssh-key-mgmt:
     desc: Copy SSH Key to Management KVM
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py 
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=copy-ssh-key-mgmt 
           --hosts=mgmt_kvm 
-          --file={{.ONBOARDER_DIR}}/tasks/copy_ssh_key.yml 
+          --file={{env "OLM_DATA_DIR"}}/playbooks/basekit/copy_ssh_key.yml 
           --kind=ansible 
-          --args="-e ssh_pubkey_path={{.INSTALL_DIR}}/.cache/rancher_ssh_key.pub"
+          --args="-e ssh_pubkey_path={{env "OLM_INSTALL_DIR"}}/.cache/rancher_ssh_key.pub"
 
   bootstrap-mgmt-kvm:
     desc: Bootstrap Management KVM Server
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py 
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=bootstrap-mgmt-kvm 
           --hosts=mgmt_kvm 
-          --file={{.ONBOARDER_DIR}}/tasks/bootstrap-mgmt-kvm.yml 
+          --file={{env "OLM_DATA_DIR"}}/playbooks/basekit/bootstrap-mgmt-kvm.yml 
           --kind=ansible
 
   configure-opnsense:
     desc: Generate OPNsense Configuration
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py 
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=configure-opnsense 
           --hosts=localhost 
-          --file={{.ONBOARDER_DIR}}/tasks/configure-opnsense.yml 
+          --file={{env "OLM_DATA_DIR"}}/playbooks/basekit/configure-opnsense.yml 
           --kind=ansible
 
   copy-opnsense-config:
     desc: Copy OPNsense Config to Management KVM
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py 
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=copy-opnsense-config 
           --hosts=mgmt_kvm 
-          --file={{.ONBOARDER_DIR}}/tasks/copy-opnsense-config.yml 
+          --file={{env "OLM_DATA_DIR"}}/playbooks/basekit/copy-opnsense-config.yml 
           --kind=ansible
 
   deploy-opnsense-vm:
     desc: Deploy OPNsense VM
     vars:
       SSH_USER:
-        sh: yq '.ssh.user' {{.INSTALL_DIR}}/deployment.yml
+        sh: yq '.ssh.user' {{env "OLM_INSTALL_DIR"}}/deployment.yml
       MGMT_HOST:
-        sh: yq '.infrastructure.mgmt_kvm.wan_ip' {{.INSTALL_DIR}}/deployment.yml
+        sh: yq '.infrastructure.mgmt_kvm.wan_ip' {{env "OLM_INSTALL_DIR"}}/deployment.yml
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py 
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=deploy-opnsense-vm 
           --kind=shell 
-          --command="ssh -t -o StrictHostKeyChecking=no -i {{.INSTALL_DIR}}/.cache/rancher_ssh_key {{.SSH_USER}}@{{.MGMT_HOST}} 'sudo bash /var/lib/libvirt/config/vm_config/opnsense/install_opnsense.sh'"
+          --command="ssh -t -o StrictHostKeyChecking=no -i {{env "OLM_INSTALL_DIR"}}/.cache/rancher_ssh_key {{.SSH_USER}}@{{.MGMT_HOST}} 'sudo bash /var/lib/libvirt/config/vm_config/opnsense/install_opnsense.sh'"
 
   deploy-vms:
     desc: Deploy VMs on Management KVM
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py 
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=deploy-vms 
           --hosts=mgmt_kvm 
-          --file={{.ONBOARDER_DIR}}/tasks/deploy-vms.yml 
+          --file={{env "OLM_DATA_DIR"}}/playbooks/basekit/deploy-vms.yml 
           --kind=ansible
 
   configure-vm-partitions:
     desc: Configure VM Disk Partitions
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py 
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=configure-vm-partitions 
           --hosts=clusters 
-          --file={{.ONBOARDER_DIR}}/tasks/configure-vm-partitions.yml 
+          --file={{env "OLM_DATA_DIR"}}/playbooks/basekit/configure-vm-partitions.yml 
           --kind=ansible
 
   deploy-all:

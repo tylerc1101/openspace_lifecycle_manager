@@ -1,15 +1,11 @@
-# lifecycle-manager/Taskfile.yml
+# openspace/main.yml
 version: '3'
-
-vars:
-  DATA_DIR: '{{.OLM_DATA_DIR}}'
-  CACHE_DIR: '{{.ONBOARDER_CACHE_DIR}}'
 
 includes:
   infra-basekit:
-    taskfile: '{{.DATA_DIR}}/taskfiles/basekit.yml'
+    taskfile: '{{env "OLM_DATA_DIR"}}/taskfiles/basekit.yml'
   onboarder:
-    taskfile: '{{.DATA_DIR}}/taskfiles/onboarder.yml'
+    taskfile: '{{env "OLM_DATA_DIR"}}/taskfiles/onboarder.yml'
 
 tasks:
   #============================================================================
@@ -115,7 +111,7 @@ tasks:
   status:
     desc: "Check deployment status"
     cmds:
-      - ansible-playbook {{.DATA_DIR}}/playbooks/check_status.yml
+      - ansible-playbook {{env "OLM_DATA_DIR"}}/playbooks/check_status.yml
         -e shared_dir={{.SHARED_DIR}}
 
   logs:
@@ -135,7 +131,7 @@ tasks:
     desc: "Run quarterly system updates"
     cmds:
       - echo "Running quarterly updates..."
-      - ansible-playbook {{.DATA_DIR}}/playbooks/update_quarterly.yml
+      - ansible-playbook {{env "OLM_DATA_DIR"}}/playbooks/update_quarterly.yml
         -e deployment_file={{.DEPLOYMENT_FILE}}
         -e shared_dir={{.SHARED_DIR}}
 

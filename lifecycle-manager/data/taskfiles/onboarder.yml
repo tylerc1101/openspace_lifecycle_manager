@@ -1,13 +1,28 @@
-# lifecycle-manager/data/taskfiles/onboarder.yml
+# openspace/data/taskfiles/onboarder.yml
 version: '3'
 
-vars:
-  DATA_DIR: '{{.OLM_DATA_DIR}}'
-  CACHE_DIR: '{{.ONBOARDER_CACHE_DIR}}'
-  INSTALL_DIR: '{{.OLM_INSTALL_DIR}}'
-  ONBOARDER_DIR: '{{.ONBOARDER_WORK_DIR}}'
-
 tasks:
+#=================================================================================#
+# Onboarder Initializtion and Validation                                          #
+#=================================================================================#
+  init:
+    desc: "Initialize Onboarder Environment"
+    cmds:
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
+          --task-id=onboarder-init 
+          --hosts=localhost 
+          --file={{env "ONBOARDER_WORK_DIR"}}/tasks/init.yml 
+          --kind=ansible
+
+  validate:
+    desc: "Validate Onboarder Configuration"
+    cmds:
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
+          --task-id=onboarder-validate 
+          --hosts=localhost 
+          --file={{env "ONBOARDER_WORK_DIR"}}/tasks/validate.yml 
+          --kind=ansible
+
 #=================================================================================#
 # Cluster Deployment                                                              #
 #=================================================================================#
@@ -19,13 +34,9 @@ tasks:
       - task: copy-ssh-key
         vars:
           HOSTS: '{{.HOSTS}}'
-          DATA_DIR: '{{.DATA_DIR}}'
-          INSTALL_DIR: '{{.INSTALL_DIR}}'
       - task: run-node-prep
         vars:
           HOSTS: '{{.HOSTS}}'
-          DATA_DIR: '{{.DATA_DIR}}'
-          ONBOARDER_DIR: '{{.ONBOARDER_DIR}}'
       - task: run-onboarder
 
   deploy-osms:
@@ -36,18 +47,12 @@ tasks:
       - task: copy-ssh-key
         vars:
           HOSTS: '{{.HOSTS}}'
-          DATA_DIR: '{{.DATA_DIR}}'
-          INSTALL_DIR: '{{.INSTALL_DIR}}'
       - task: run-node-prep
         vars:
           HOSTS: '{{.HOSTS}}'
-          DATA_DIR: '{{.DATA_DIR}}'
-          ONBOARDER_DIR: '{{.ONBOARDER_DIR}}'
       - task: deploy-downstream-cluster
         vars:
           CLUSTER_TYPE: osms
-          DATA_DIR: '{{.DATA_DIR}}'
-          ONBOARDER_DIR: '{{.ONBOARDER_DIR}}'
 
   deploy-osdc:
     desc: Deploy OSDC Cluster
@@ -57,28 +62,22 @@ tasks:
       - task: copy-ssh-key
         vars:
           HOSTS: '{{.HOSTS}}'
-          DATA_DIR: '{{.DATA_DIR}}'
-          INSTALL_DIR: '{{.INSTALL_DIR}}'
       - task: run-node-prep
         vars:
           HOSTS: '{{.HOSTS}}'
-          DATA_DIR: '{{.DATA_DIR}}'
-          ONBOARDER_DIR: '{{.ONBOARDER_DIR}}'
       - task: deploy-downstream-cluster
         vars:
           CLUSTER_TYPE: osdc
-          DATA_DIR: '{{.DATA_DIR}}'
-          ONBOARDER_DIR: '{{.ONBOARDER_DIR}}'
 
   deploy-post-osdc:
     desc: "Post-OSDC deployment tasks"
     requires:
       vars: [HOSTS]
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py
           --task-id=deploy-post-osdc-{{.HOSTS}}
           --hosts=localhost
-          --file={{.ONBOARDER_DIR}}/tasks/post-osdc.yml
+          --file={{env "ONBOARDER_WORK_DIR"}}/tasks/post-osdc.yml
           --kind=ansible
 
   deploy-downstream-cluster:
@@ -86,10 +85,10 @@ tasks:
     requires:
       vars: [CLUSTER_TYPE]
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py 
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=deploy-{{.CLUSTER_TYPE}}-cluster
           --kind=ansible
-          --file={{.ONBOARDER_DIR}}/tasks/deploy_downstream_cluster.yml
+          --file={{env "ONBOARDER_WORK_DIR"}}/tasks/deploy_downstream_cluster.yml
           --args="-e cluster_type={{.CLUSTER_TYPE}}"
 
 #=================================================================================#
@@ -100,10 +99,10 @@ tasks:
     requires:
       vars: [HOSTS]
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py
           --task-id=copy-ssh-key-{{.HOSTS}}
           --hosts={{.HOSTS}}
-          --file={{.ONBOARDER_DIR}}/tasks/copy_ssh_key.yml
+          --file={{env "ONBOARDER_WORK_DIR"}}/tasks/copy_ssh_key.yml
           --kind=ansible
 
   node-prep:
@@ -111,10 +110,10 @@ tasks:
     requires:
       vars: [HOSTS]
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py 
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=configure-node-{{.HOSTS}} 
           --hosts={{.HOSTS}} 
-          --file={{.ONBOARDER_DIR}}/tasks/configure-node.yml 
+          --file={{env "ONBOARDER_WORK_DIR"}}/tasks/configure-node.yml 
           --kind=ansible
 
   install-rke2-selinux:
@@ -122,10 +121,10 @@ tasks:
     requires:
       vars: [HOSTS]
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py 
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=install-rke2-selinux-{{.HOSTS}} 
           --hosts={{.HOSTS}} 
-          --file={{.ONBOARDER_DIR}}/tasks/install_rke2-selinux.yml 
+          --file={{env "ONBOARDER_WORK_DIR"}}/tasks/install_rke2-selinux.yml 
           --kind=ansible
 
   run-node-prep:
@@ -136,13 +135,9 @@ tasks:
       - task: node-prep
         vars:
           HOSTS: '{{.HOSTS}}'
-          DATA_DIR: '{{.DATA_DIR}}'
-          ONBOARDER_DIR: '{{.ONBOARDER_DIR}}'
       - task: install-rke2-selinux
         vars:
           HOSTS: '{{.HOSTS}}'
-          DATA_DIR: '{{.DATA_DIR}}'
-          ONBOARDER_DIR: '{{.ONBOARDER_DIR}}'
 
 #=================================================================================#
 # Onboarder Tasks                                                                 #
@@ -171,12 +166,12 @@ tasks:
       FILE: './tasks/prep_onboarder_container.yml'
       KIND: ansible
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py --task-id=prep-onboarder-container --hosts={{.HOSTS}} --file={{.FILE}} --kind={{.KIND}}
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py --task-id=prep-onboarder-container --hosts={{.HOSTS}} --file={{.FILE}} --kind={{.KIND}}
 
   deploy-rke2-cluster:
     desc: Deploy RKE2 Cluster
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py 
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=deploy-rke2-cluster 
           --kind=shell 
           --command="cd /docker-workspace && make ansible-deploy-rke2-cluster ENVIRONMENT=install"
@@ -184,7 +179,7 @@ tasks:
   bootstrap-container-images:
     desc: Bootstrap Container Images
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py 
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=bootstrap-container-images 
           --kind=shell 
           --command="cd /docker-workspace && make bootstrap-container-images-run ENVIRONMENT=install"
@@ -192,7 +187,7 @@ tasks:
   deploy-harbor:
     desc: Deploy Harbor Registry
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py 
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=deploy-harbor 
           --kind=shell 
           --command="cd /docker-workspace && make helmfile-install HELMFILE_CHART=harbor ENVIRONMENT=install"
@@ -200,7 +195,7 @@ tasks:
   load-darksite-bundles:
     desc: Load Darksite Bundles
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py 
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=load-darksite-bundles 
           --kind=shell 
           --command="cd /docker-workspace && make load-darksite-bundles ENVIRONMENT=install"
@@ -208,7 +203,7 @@ tasks:
   deploy-rancher:
     desc: Deploy Rancher
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py 
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=deploy-rancher 
           --kind=shell 
           --command="cd /docker-workspace && make helmfile-install HELMFILE_CHART=rancher ENVIRONMENT=install"
@@ -216,7 +211,7 @@ tasks:
   terraform-rancher:
     desc: Bootstrap Rancher with Terraform
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py 
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=terraform-rancher 
           --kind=shell 
           --command="cd /docker-workspace && make terraform-rancher-bootstrap-apply ENVIRONMENT=install"
@@ -224,7 +219,7 @@ tasks:
   deploy-gitea:
     desc: Deploy Gitea
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py 
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=deploy-gitea 
           --kind=shell 
           --command="cd /docker-workspace && make install-gitea ENVIRONMENT=install"
@@ -232,7 +227,7 @@ tasks:
   deploy-argocd:
     desc: Deploy ArgoCD
     cmds:
-      - python3 {{.DATA_DIR}}/run_task.py 
+      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=deploy-argocd 
           --kind=shell 
           --command="cd /docker-workspace && make install-argocd ENVIRONMENT=install"

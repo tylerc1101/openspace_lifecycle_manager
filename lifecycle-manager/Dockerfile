@@ -70,7 +70,7 @@ ENV ONBOARDER_WORK_DIR=/docker-workspace \
     ONBOARDER_COMMON_DIR=/docker-workspace/config/common \
     ONBOARDER_SAMPLE_VSPHERE_DIR=/docker-workspace/config/sample-vsphere \
     ONBOARDER_INSTALL_DIR=/docker-workspace/config/install \
-    ONBOARDER_CACHE_DIR=/docker-workspace/config/install/.cache
+    ONBOARDER_CACHE_DIR=/docker-workspace/config/install/.cache \
     ONBOARDER_VERSION=${ONBOARDER_VERSION}
 
 # Lifecycle Manager Environment variables
