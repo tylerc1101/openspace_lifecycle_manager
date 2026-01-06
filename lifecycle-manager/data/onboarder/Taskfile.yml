@@ -1,0 +1,122 @@
+# openspace/data/onboarder/Taskfile.yml
+version: '3'
+
+vars:
+  TASK_EXECUTER: '{{env "OLM_DATA_DIR"}}/run_task.py'
+  TASK_FILE_DIR: '{{env "OLM_ONBOARDER_TASK_DIR"}}'
+
+tasks:
+#=================================================================================#
+# Onboarder Initializtion and Validation                                          #
+#=================================================================================#
+  init:
+    desc: "Initialize Onboarder Environment"
+    cmds:
+      - python3 {{.TASK_EXECUTER}} 
+          --task-id=onboarder-init 
+          --hosts=localhost 
+          --file={{.TASK_FILE_DIR}}/init.yml 
+          --kind=ansible
+      - python3 {{.TASK_EXECUTER}} 
+          --task-id=onboarder-prep 
+          --hosts=localhost 
+          --file={{.TASK_FILE_DIR}}/prep_onboarder_container.yml 
+          --kind=ansible
+
+  validate:
+    desc: "Validate Onboarder Configuration"
+    cmds:
+      - python3 {{.TASK_EXECUTER}} 
+          --task-id=onboarder-validate 
+          --hosts=localhost 
+          --file={{.TASK_FILE_DIR}}/validate.yml 
+          --kind=ansible
+
+#=================================================================================#
+# Onboarder  Main Task                                                            #
+#=================================================================================#
+  run-onboarder:
+    desc: Run all Onboarder deployment steps
+    cmds:
+      - task: deploy-rke2-cluster
+      - task: bootstrap-container-images
+      - task: deploy-harbor
+      - task: load-darksite-bundles
+      - task: deploy-rancher
+      - task: terraform-rancher
+      - task: deploy-gitea
+      - task: deploy-argocd
+
+#=================================================================================#
+# Onboarder  Minor Task                                                            #
+#=================================================================================#
+  deploy-rke2-cluster:
+    desc: Deploy RKE2 Cluster
+    cmds:
+      - python3 {{.TASK_EXECUTER}} 
+          --task-id=deploy-rke2-cluster 
+          --kind=shell 
+          --command="cd /docker-workspace && make ansible-deploy-rke2-cluster ENVIRONMENT=install"
+
+  bootstrap-container-images:
+    desc: Bootstrap Container Images
+    cmds:
+      - python3 {{.TASK_EXECUTER}} 
+          --task-id=bootstrap-container-images 
+          --kind=shell 
+          --command="cd /docker-workspace && make bootstrap-container-images-run ENVIRONMENT=install"
+
+  deploy-harbor:
+    desc: Deploy Harbor Registry
+    cmds:
+      - python3 {{.TASK_EXECUTER}}
+          --task-id=deploy-harbor 
+          --kind=shell 
+          --command="cd /docker-workspace && make helmfile-install HELMFILE_CHART=harbor ENVIRONMENT=install"
+
+  load-darksite-bundles:
+    desc: Load Darksite Bundles
+    cmds:
+      - python3 {{.TASK_EXECUTER}} 
+          --task-id=load-darksite-bundles 
+          --kind=shell 
+          --command="cd /docker-workspace && make load-darksite-bundles ENVIRONMENT=install"
+
+  deploy-rancher:
+    desc: Deploy Rancher
+    cmds:
+      - python3 {{.TASK_EXECUTER}} 
+          --task-id=deploy-rancher 
+          --kind=shell 
+          --command="cd /docker-workspace && make helmfile-install HELMFILE_CHART=rancher ENVIRONMENT=install"
+
+  terraform-rancher:
+    desc: Bootstrap Rancher with Terraform
+    cmds:
+      - python3 {{.TASK_EXECUTER}} 
+          --task-id=terraform-rancher 
+          --kind=shell 
+          --command="cd /docker-workspace && make terraform-rancher-bootstrap-apply ENVIRONMENT=install"
+
+  deploy-gitea:
+    desc: Deploy Gitea
+    cmds:
+      - python3 {{.TASK_EXECUTER}}
+          --task-id=deploy-gitea 
+          --kind=shell 
+          --command="cd /docker-workspace && make install-gitea ENVIRONMENT=install"
+
+  deploy-argocd:
+    desc: Deploy ArgoCD
+    cmds:
+      - python3 {{.TASK_EXECUTER}}
+          --task-id=deploy-argocd 
+          --kind=shell 
+          --command="cd /docker-workspace && make install-argocd ENVIRONMENT=install"
+
+  get-kubeconfig:
+    desc: "Retrieve MCM kubeconfig file"
+    cmds:
+      - task: onboarder:get-kubeconfig
+        vars:
+          HOSTS: management_cluster

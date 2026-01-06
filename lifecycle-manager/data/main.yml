@@ -2,10 +2,16 @@
 version: '3'
 
 includes:
+  clusters:
+    taskfile: '{{env "OLM_CLUSTERS_TASKFILE"}}'
+  custom:
+    taskfile: '{{env "OLM_CUSTOM_TASKFILE"}}'
+  node-prep:
+    taskfile: '{{env "OLM_NODE_PREP_TASKFILE"}}'
   infra-basekit:
-    taskfile: '{{env "OLM_DATA_DIR"}}/taskfiles/basekit.yml'
+    taskfile: '{{env "OLM_BASEKIT_TASKFILE"}}'
   onboarder:
-    taskfile: '{{env "OLM_DATA_DIR"}}/taskfiles/onboarder.yml'
+    taskfile: '{{env "OLM_ONBOARDER_TASKFILE"}}'
 
 tasks:
   #============================================================================
@@ -25,12 +31,12 @@ tasks:
   # Infrastructure Deployment
   #============================================================================
   deploy-infra-basekit:
-    desc: "Deploy {{.DEPLOYMENT_TYPE}} infrastructure (VMs/network)"
+    desc: "Deploy basekit infrastructure (VMs/network)"
     cmds:
       - task: infra-basekit:deploy-all
 
   destroy-infra-basekit:
-    desc: "Destroy {{.DEPLOYMENT_TYPE}} infrastructure"
+    desc: "Destroy basekit infrastructure"
     cmds:
       - task: infra-basekit:destroy-all
 
@@ -40,7 +46,10 @@ tasks:
   deploy-mcm:
     desc: "Deploy Management Cluster (Rancher, Harbor, Gitea, ArgoCD)"
     cmds:
-      - task: onboarder:deploy-mcm
+      - task: node-prep:run-node-prep
+        vars:
+          HOSTS: management_cluster
+      - task: onboarder:run-onboarder
 
   destroy-mcm:
     desc: "Destroy Management Cluster"
@@ -58,17 +67,26 @@ tasks:
   deploy-osms:
     desc: "Deploy OpenSpace Management System"
     cmds:
-      - task: osms:deploy
+      - task: node-prep:run-node-prep
+        vars:
+          HOSTS: openspace_management_system
+      - task: clusters:deploy-downstream-cluster
+        vars:
+          CLUSTER_TYPE: osms
 
   destroy-osms:
     desc: "Destroy OSMS"
     cmds:
-      - task: osms:destroy
+      - task: clusters:destroy-downstream-cluster
+        vars:
+          CLUSTER_TYPE: osms
 
   get-kubeconfig-osms:
     desc: "Retrieve OSMS kubeconfig"
     cmds:
-      - task: osms:get-kubeconfig
+      - task: clusters:get-kubeconfig
+        vars:
+          CLUSTER_TYPE: osms
 
   #============================================================================
   # OpenSpace Data Cluster (OSDC)
@@ -76,22 +94,33 @@ tasks:
   deploy-osdc:
     desc: "Deploy OpenSpace Data Cluster"
     cmds:
-      - task: osms:deploy-osdc
+      - task: node-prep:run-node-prep
+        vars:
+          HOSTS: openspace_data_cluster
+      - task: clusters:deploy-downstream-cluster
+        vars:
+          CLUSTER_TYPE: osdc
 
   deploy-post-osdc:
-    desc: "Post-OSDC deployment tasks"
+    desc: "Run post-deployment tasks for OSDC"
     cmds:
-      - task: osms:deploy-post-osdc
+      - task: clusters:deploy-post-osdc
+        vars:
+          HOSTS: openspace_data_cluster
 
   destroy-osdc:
     desc: "Destroy OSDC"
     cmds:
-      - task: osms:destroy-osdc
+      - task: clusters:destroy-downstream-cluster
+        vars:
+          CLUSTER_TYPE: osdc
 
   get-kubeconfig-osdc:
     desc: "Retrieve OSDC kubeconfig"
     cmds:
-      - task: osms:get-kubeconfig-osdc
+      - task: clusters:get-kubeconfig
+        vars:
+          CLUSTER_TYPE: osdc
 
   #============================================================================
   # Full Deployment

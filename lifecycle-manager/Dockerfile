@@ -58,6 +58,17 @@ COPY data/taskfiles/main.yml /openspace/Taskfile.yml
 COPY data/ /openspace/data/
 
 # =============================================================================
+# Copy images
+# =============================================================================
+
+RUN mkdir -p /openspace/data/images
+
+ARG RKE2_SELINUX_VERSION=0.18-1.el9
+
+RUN curl -fL -o /openspace/data/images/rke2-selinux.rpm \
+    https://rpm.rancher.io/rke2/latest/common/centos/9/noarch/rke2-selinux-${RKE2_SELINUX_VERSION}.noarch.rpm
+
+# =============================================================================
 # Environment Setup
 # =============================================================================
 
@@ -76,6 +87,21 @@ ENV ONBOARDER_WORK_DIR=/docker-workspace \
 # Lifecycle Manager Environment variables
 ENV OLM_WORK_DIR=/openspace \
     OLM_DATA_DIR=/openspace/data \
+    OLM_CUSTOM_DIR=/openspace/custom \
+    OLM_CUSTOM_TASKFILE=/openspace/custom/Taskfile.yml \
+    OLM_CUSTOM_TEMPLATES_DIR=/openspace/custom/templates \
+    OLM_ONBOARDER_TASK_DIR=/openspace/data/onboarder/tasks \
+    OLM_ONBOARDER_TASKFILE=/openspace/data/onboarder/Taskfile.yml \
+    OLM_ONBOARDER_TEMPLATES_DIR=/openspace/data/onboarder/templates \
+    OLM_BASEKIT_TASK_DIR=/openspace/data/basekit/tasks \
+    OLM_BASEKIT_TEMPLATES_DIR=/openspace/data/basekit/templates \
+    OLM_BASEKIT_TASKFILE=/openspace/data/basekit/Taskfile.yml \
+    OLM_CLUSTERS_TASK_DIR=/openspace/data/clusters/tasks \
+    OLM_CLUSTERS_TEMPLATES_DIR=/openspace/data/clusters/templates \
+    OLM_CLUSTERS_TASKFILE=/openspace/data/clusters/Taskfile.yml \
+    OLM_NODE_PREP_TASK_DIR=/openspace/data/node_prep/tasks \
+    OLM_NODE_PREP_TASKFILE=/openspace/data/node_prep/Taskfile.yml \
+    OLM_NODE_PREP_TEMPLATES_DIR=/openspace/data/node_prep/templates \
     OLM_LIFECYCLE_VERSION=${LIFECYCLE_VERSION}
 
 RUN echo '' >> /root/.bashrc && \
