@@ -6,6 +6,7 @@ includes:
     taskfile: '{{env "OLM_CLUSTERS_TASKFILE"}}'
   custom:
     taskfile: '{{env "OLM_CUSTOM_TASKFILE"}}'
+    optional: true
   node-prep:
     taskfile: '{{env "OLM_NODE_PREP_TASKFILE"}}'
   infra-basekit:
