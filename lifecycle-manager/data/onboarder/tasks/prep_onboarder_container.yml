@@ -1,8 +1,24 @@
 - name: Prep Onboarder Container
   hosts: "{{ target_hosts | default('localhost')}}"
+
+  vars:
+    cache_dir: "{{ lookup('env', 'ONBOARDER_CACHE_DIR')}}"
+    install_dir: "{{ lookup('env', 'ONBOARDER_INSTALL_DIR')}}"
+    common_dir: "{{ lookup('env', 'ONBOARDER_COMMON_DIR')}}"
+    sample_vsphere_dir: "{{ lookup('env', 'ONBOARDER_SAMPLE_VSPHERE_DIR')}}"
+    basekit_templates_dir: "{{ lookup('env', 'OLM_BASEKIT_TEMPLATES_DIR') }}"
+
   
   tasks:
     # a) Build directories
+    - name: Ensure install directory exists
+      file:
+        path: "{{ install_dir }}"
+        state: directory
+        mode: '0755'
+        owner: root
+        group: root
+
     - name: Ensure .cache directory exists
       file:
         path: "{{ cache_dir }}"
@@ -24,7 +40,7 @@
     # b) Modify Makefiles
     - name: Deploy Makefile
       template:
-        src: "{{ onboarder_dir }}/files/basekit_makefile.j2"
+        src: "{{ basekit_templates_dir }}/Makefile.j2"
         dest: "{{ install_dir }}/Makefile"
         owner: root
         group: root
@@ -44,7 +60,7 @@
     # c) Create terraform state file
     - name: Create vm-terraform.tfstate inside container
       template:
-        src: "{{ onboarder_dir }}/files/basekit_vm-terraform.tfstate.j2"
+        src: "{{ basekit_templates_dir }}/vm-terraform.tfstate.j2"
         dest: "{{ cache_dir }}/vm-terraform.tfstate"
         owner: root
         group: root
@@ -91,16 +107,3 @@
         # Match 'encryption:' … then the specific 'enabled: true' before 'type: wireguard'
         regexp: '(?ms)^(\s*encryption:\s*\n\s*enabled:\s*)true(?=\s*\n\s*type:\s*wireguard)'
         replace: '\1false'
-
-    # g) Copy in Taskfile
-    - name: Copy in the Taskfile binary
-      ansible.builtin.copy:
-        src: "{{ image_dir }}/task"
-        dest: "/usr/local/bin"
-        owner: root
-        group: root
-        mode: '0755'
-
-    # h) Install sshpass
-    - name: Install sshpass
-      command: "rpm -i {{ image_dir }}/rpms/sshpass*"

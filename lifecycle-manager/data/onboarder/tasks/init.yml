@@ -8,6 +8,11 @@
 
 - name: Generate deployment configuration files
   hosts: localhost
+
+  vars:
+    olm_deployment_yaml: "{{ lookup('env', 'OLM_DEPLOYMENT_YAML') }}"
+    basekit_templates_dir: "{{ lookup('env', 'OLM_BASEKIT_TEMPLATES_DIR') }}"
+    work_dir: "{{ lookup('env', 'OLM_WORK_DIR') }}"
   
   tasks:
     # ==========================================================================
@@ -15,17 +20,17 @@
     # ==========================================================================
     - name: "PHASE 1: Load and Validate Configuration"
       debug:
-        msg: "Loading deployment configuration from {{ deployment_config }}"
+        msg: "Loading deployment configuration from {{ olm_deployment_yaml }}"
     
     - name: Check if deployment.yml exists
       stat:
-        path: "{{ deployment_config }}"
-      register: deployment_config_stat
-      failed_when: not deployment_config_stat.stat.exists
+        path: "{{ olm_deployment_yaml }}"
+      register: olm_deployment_yaml_stat
+      failed_when: not olm_deployment_yaml_stat.stat.exists
     
     - name: Load deployment configuration
       include_vars:
-        file: "{{ deployment_config }}"
+        file: "{{ olm_deployment_yaml }}"
         name: config
     
     - name: Display loaded configuration
@@ -58,8 +63,8 @@
     
     - name: Generate Ansible inventory (inventory.yml)
       template:
-        src: "{{ templates_dir }}/inventory.yml.j2"
-        dest: "{{ install_dir }}/inventory.yml"
+        src: "{{ basekit_templates_dir }}/inventory.yml.j2"
+        dest: "{{ work_dir }}/inventory.yml"
         mode: '0644'
       vars:
         deployment: "{{ config.deployment }}"
@@ -79,11 +84,17 @@
     - name: "PHASE 3: Generate group_vars"
       debug:
         msg: "Generating group_vars files from templates"
+
+    - name: "Generate group_vars dir"
+      file:
+        path: "{{ work_dir }}/group_vars"
+        state: directory
+        mode: '0755'
     
     - name: Generate group_vars/all.yml
       template:
-        src: "{{ templates_dir }}/group_vars_all.yml.j2"
-        dest: "{{ install_dir }}/group_vars/all.yml"
+        src: "{{ basekit_templates_dir }}/group_vars_all.yml.j2"
+        dest: "{{ work_dir }}/group_vars/all.yml"
         mode: '0644'
       vars:
         deployment: "{{ config.deployment }}"
@@ -104,11 +115,17 @@
     - name: "PHASE 4: Generate host_vars"
       debug:
         msg: "Generating host_vars files from templates"
+
+    - name: "Generate host_vars dir"
+      file:
+        path: "{{ work_dir }}/host_vars"
+        state: directory
+        mode: '0755'
     
     - name: Generate host_vars/mgmt_kvm.yml
       template:
-        src: "{{ templates_dir }}/host_vars_mgmt_kvm.yml.j2"
-        dest: "{{ install_dir }}/host_vars/mgmt_kvm.yml"
+        src: "{{ basekit_templates_dir }}/host_vars_mgmt_kvm.yml.j2"
+        dest: "{{ work_dir }}/host_vars/mgmt_kvm.yml"
         mode: '0644'
       vars:
         mgmt_kvm: "{{ config.infrastructure.mgmt_kvm }}"
