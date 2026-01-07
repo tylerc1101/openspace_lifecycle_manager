@@ -3,17 +3,14 @@
   hosts: "{{ target_hosts | default('localhost') }}"
   
   vars:
-    env_name: "{{ env_name | mandatory }}"
-    template_file: "{{ onboarder_dir }}/files/config_template.xml"
-    output_dir: "/docker-workspace/config/install/generated_files"
+    template_file: "{{ lookup('env', 'OLM_NODE_PREP_TEMPLATES_DIR') }}/config_template.xml"
+    output_dir: "{{ lookup('env', 'OLM_GENERATED_FILES_DIR') }}"
     output_file: "{{ output_dir }}/config.xml"
     wan_ip: "{{ hostvars['opnsense'].ansible_host }}"
     opnsense_hostname: "opnsense"
     wan_interface: "vtnet1"
     lan_interface: "vtnet0"
     opt1_interface: "vtnet2"
-  #vars_files:
-  #  - "/docker-workspace/confg/{{ env_name }}/group_vars/vms.yml"
   
   tasks:
     

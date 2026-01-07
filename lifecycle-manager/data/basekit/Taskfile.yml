@@ -23,7 +23,7 @@ tasks:
       - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=bootstrap-mgmt-kvm 
           --hosts=mgmt_kvm 
-          --file={{env "OLM_DATA_DIR"}}/playbooks/basekit/bootstrap-mgmt-kvm.yml 
+          --file={{env "OLM_BASEKIT_TASK_DIR"}}/bootstrap-mgmt-kvm.yml 
           --kind=ansible
 
   configure-opnsense:
@@ -32,7 +32,7 @@ tasks:
       - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=configure-opnsense 
           --hosts=localhost 
-          --file={{env "OLM_DATA_DIR"}}/playbooks/basekit/configure-opnsense.yml 
+          --file={{env "OLM_BASEKIT_TASK_DIR"}}/configure-opnsense.yml 
           --kind=ansible
 
   copy-opnsense-config:
@@ -41,7 +41,7 @@ tasks:
       - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=copy-opnsense-config 
           --hosts=mgmt_kvm 
-          --file={{env "OLM_DATA_DIR"}}/playbooks/basekit/copy-opnsense-config.yml 
+          --file={{env "OLM_BASEKIT_TASK_DIR"}}/copy-opnsense-config.yml 
           --kind=ansible
 
   deploy-opnsense-vm:
@@ -55,7 +55,7 @@ tasks:
       - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=deploy-opnsense-vm 
           --kind=shell 
-          --command="ssh -t -o StrictHostKeyChecking=no -i {{env "OLM_INSTALL_DIR"}}/.cache/rancher_ssh_key {{.SSH_USER}}@{{.MGMT_HOST}} 'sudo bash /var/lib/libvirt/config/vm_config/opnsense/install_opnsense.sh'"
+          --command="ssh -t -o StrictHostKeyChecking=no -i {{env "ONBOARDER_CACHE_DIR"}}/rancher_ssh_key {{.SSH_USER}}@{{.MGMT_HOST}} 'sudo bash /var/lib/libvirt/config/vm_config/opnsense/install_opnsense.sh'"
 
   deploy-vms:
     desc: Deploy VMs on Management KVM
@@ -63,7 +63,7 @@ tasks:
       - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=deploy-vms 
           --hosts=mgmt_kvm 
-          --file={{env "OLM_DATA_DIR"}}/playbooks/basekit/deploy-vms.yml 
+          --file={{env "OLM_BASEKIT_TASK_DIR"}}/deploy-vms.yml 
           --kind=ansible
 
   configure-vm-partitions:
@@ -72,5 +72,5 @@ tasks:
       - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=configure-vm-partitions 
           --hosts=clusters 
-          --file={{env "OLM_DATA_DIR"}}/playbooks/basekit/configure-vm-partitions.yml 
+          --file={{env "OLM_BASEKIT_TASK_DIR"}}/configure-vm-partitions.yml 
           --kind=ansible

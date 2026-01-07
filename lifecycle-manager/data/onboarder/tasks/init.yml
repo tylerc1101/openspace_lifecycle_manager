@@ -13,7 +13,7 @@
   vars:
     olm_deployment_yaml: "{{ lookup('env', 'OLM_DEPLOYMENT_YAML') }}"
     basekit_templates_dir: "{{ lookup('env', 'OLM_BASEKIT_TEMPLATES_DIR') }}"
-    work_dir: "{{ lookup('env', 'OLM_WORK_DIR') }}"
+    generated_files_dir: "{{ lookup('env', 'OLM_GENERATED_FILES_DIR') }}"
   
   tasks:
     # ==========================================================================
@@ -65,7 +65,7 @@
     - name: Generate Ansible inventory (inventory.yml)
       template:
         src: "{{ basekit_templates_dir }}/inventory.yml.j2"
-        dest: "{{ work_dir }}/inventory.yml"
+        dest: "{{ generated_files_dir }}/inventory.yml"
         mode: '0644'
       vars:
         deployment: "{{ config.deployment }}"
@@ -88,14 +88,14 @@
 
     - name: "Generate group_vars dir"
       file:
-        path: "{{ work_dir }}/group_vars"
+        path: "{{ generated_files_dir }}/group_vars"
         state: directory
         mode: '0755'
     
     - name: Generate group_vars/all.yml
       template:
         src: "{{ basekit_templates_dir }}/group_vars_all.yml.j2"
-        dest: "{{ work_dir }}/group_vars/all.yml"
+        dest: "{{ generated_files_dir }}/group_vars/all.yml"
         mode: '0644'
       vars:
         deployment: "{{ config.deployment }}"
@@ -119,14 +119,14 @@
 
     - name: "Generate host_vars dir"
       file:
-        path: "{{ work_dir }}/host_vars"
+        path: "{{ generated_files_dir }}/host_vars"
         state: directory
         mode: '0755'
     
     - name: Generate host_vars/mgmt_kvm.yml
       template:
         src: "{{ basekit_templates_dir }}/host_vars_mgmt_kvm.yml.j2"
-        dest: "{{ work_dir }}/host_vars/mgmt_kvm.yml"
+        dest: "{{ generated_files_dir }}/host_vars/mgmt_kvm.yml"
         mode: '0644'
       vars:
         mgmt_kvm: "{{ config.infrastructure.mgmt_kvm }}"

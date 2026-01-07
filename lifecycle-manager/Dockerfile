@@ -87,7 +87,8 @@ ENV ONBOARDER_WORK_DIR=/docker-workspace \
 # Lifecycle Manager Environment variables
 ENV OLM_WORK_DIR=/openspace \
     OLM_DEPLOYMENT_YAML=/openspace/deployment.yml \
-    OLM_INVENTORY_YAML=/openspace/inventory.yml \
+    OLM_GENERATED_FILES_DIR=/openspace/generated_files \
+    OLM_INVENTORY_YAML=/openspace/generated_files/inventory.yml \
     OLM_DATA_DIR=/openspace/data \
     OLM_ANSIBLE_CFG=/openspace/data/ansible.cfg \
     OLM_CUSTOM_DIR=/openspace/custom \
