@@ -2,12 +2,12 @@
 - name: Bootstrap SSH key to one or more target hosts
   hosts: "{{ target_hosts }}"
   gather_facts: no
-  become: no  # IMPORTANT: We don't need sudo to copy SSH keys to our own user
+  become: no
   
   vars:
-    env_name: "{{ env_name | mandatory }}"
-    target_user: "{{ ansible_user | default('kratos') }}"
-    ssh_pubkey_path: "{{ install_dir }}/.cache/rancher_ssh_key.pub"
+    target_user: "{{ ansible_user }}"
+    cache_dir: "{{ lookup('env', 'ONBOARDER_CACHE_DIR') }}"
+    ssh_pubkey_path: "{{ cache_dir }}/rancher_ssh_key.pub"
 
   tasks:
     - name: Validate that ssh_pubkey_path exists (on localhost)

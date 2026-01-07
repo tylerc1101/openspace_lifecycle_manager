@@ -34,12 +34,15 @@ tasks:
   deploy-infra-basekit:
     desc: "Deploy basekit infrastructure (VMs/network)"
     cmds:
-      - task: infra-basekit:deploy-all
+      - task: node-prep:run-node-prep
+        vars:
+          HOSTS: mgmt_kvm
+      - task: infra-basekit:deploy-basekit-infrastructure
 
   destroy-infra-basekit:
     desc: "Destroy basekit infrastructure"
     cmds:
-      - task: infra-basekit:destroy-all
+      - task: infra-basekit:destroy-basekit-infrastructure
 
   #============================================================================
   # Management Cluster Module (MCM) - via Onboarder

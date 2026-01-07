@@ -1,0 +1,20 @@
+- name: Ensure /etc/systemd/system/rke2-server.service.d exists
+  file:
+    path: /etc/systemd/system/rke2-server.service.d
+    state: directory
+    mode: '0755'
+
+- name: Create override.conf for rke2-server
+  copy:
+    dest: /etc/systemd/system/rke2-server.service.d/override.conf
+    content: |
+      [Service]
+      LimitNOFILE=infinity
+    mode: '0644'
+
+- name: Create rke2-canal.conf
+  copy:
+    dest: /etc/NetworkManager/conf.d/rke2-canal.conf
+    content: |
+      [keyfile]
+      unmanaged-devices=interface-name:cali*;interface-name:flannel*

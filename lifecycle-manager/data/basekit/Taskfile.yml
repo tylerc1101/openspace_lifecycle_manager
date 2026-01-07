@@ -1,16 +1,22 @@
 version: '3'
 
 tasks:
-  copy-ssh-key-mgmt:
-    desc: Copy SSH Key to Management KVM
+#=================================================================================#
+# Basekit  Main Task
+#=================================================================================#
+  deploy-basekit-infrastructure:
+    desc: Deploy All Basekit Components
     cmds:
-      - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
-          --task-id=copy-ssh-key-mgmt 
-          --hosts=mgmt_kvm 
-          --file={{env "OLM_DATA_DIR"}}/playbooks/basekit/copy_ssh_key.yml 
-          --kind=ansible 
-          --args="-e ssh_pubkey_path={{env "OLM_INSTALL_DIR"}}/.cache/rancher_ssh_key.pub"
-
+      - task: bootstrap-mgmt-kvm
+      - task: configure-opnsense
+      - task: copy-opnsense-config
+      - task: deploy-opnsense-vm
+      - task: deploy-vms
+      - task: configure-vm-partitions
+  
+#=================================================================================#
+# Basekit  Minor Task
+#=================================================================================# 
   bootstrap-mgmt-kvm:
     desc: Bootstrap Management KVM Server
     cmds:
@@ -68,14 +74,3 @@ tasks:
           --hosts=clusters 
           --file={{env "OLM_DATA_DIR"}}/playbooks/basekit/configure-vm-partitions.yml 
           --kind=ansible
-
-  deploy-all:
-    desc: Deploy All Basekit Components
-    cmds:
-      - task: copy-ssh-key-mgmt
-      - task: bootstrap-mgmt-kvm
-      - task: configure-opnsense
-      - task: copy-opnsense-config
-      - task: deploy-opnsense-vm
-      - task: deploy-vms
-      - task: configure-vm-partitions

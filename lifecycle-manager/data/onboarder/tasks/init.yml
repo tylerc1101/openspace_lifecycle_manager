@@ -8,6 +8,7 @@
 
 - name: Generate deployment configuration files
   hosts: localhost
+  gather_facts: true
 
   vars:
     olm_deployment_yaml: "{{ lookup('env', 'OLM_DEPLOYMENT_YAML') }}"
