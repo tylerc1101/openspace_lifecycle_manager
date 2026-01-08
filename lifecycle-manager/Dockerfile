@@ -50,6 +50,7 @@ RUN curl -sL "https://github.com/go-task/task/releases/download/v${TASKFILE_VERS
 # Create openspace structure
 # Note: Onboarder already has /docker-workspace
 RUN mkdir -p /openspace/data
+RUN mkdir -p /openspace/generated_files
 
 # Copy top-level Taskfile
 COPY data/Taskfile.yml /openspace/Taskfile.yml

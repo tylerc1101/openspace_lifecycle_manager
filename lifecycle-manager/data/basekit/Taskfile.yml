@@ -48,9 +48,9 @@ tasks:
     desc: Deploy OPNsense VM
     vars:
       SSH_USER:
-        sh: yq '.ssh.user' {{env "OLM_INSTALL_DIR"}}/deployment.yml
+        sh: yq '.ssh.user' {{env "OLM_WORK_DIR"}}/deployment.yml
       MGMT_HOST:
-        sh: yq '.infrastructure.mgmt_kvm.wan_ip' {{env "OLM_INSTALL_DIR"}}/deployment.yml
+        sh: yq '.infrastructure.mgmt_kvm.wan_ip' {{env "OLM_WORK_DIR"}}/deployment.yml
     cmds:
       - python3 {{env "OLM_DATA_DIR"}}/run_task.py 
           --task-id=deploy-opnsense-vm 

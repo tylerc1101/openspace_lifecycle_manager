@@ -1,8 +1,7 @@
 - name: Copy files to mgmt_kvm
   hosts: "{{ target_hosts | default('mgmt_kvm') }}"
   vars:
-    env_name: "{{ env_name | mandatory }}"
-    output_dir: "/docker-workspace/config/install/generated_files"
+    output_dir: "{{ lookup('env', 'OLM_GENERATED_FILES_DIR') }}"
     output_file: "{{ output_dir }}/config.xml"
     images_dir: /var/lib/libvirt/config
     vm_config_dir: /var/lib/libvirt/config/vm_config

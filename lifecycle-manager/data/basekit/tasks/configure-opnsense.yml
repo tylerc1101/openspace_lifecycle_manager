@@ -3,7 +3,7 @@
   hosts: "{{ target_hosts | default('localhost') }}"
   
   vars:
-    template_file: "{{ lookup('env', 'OLM_NODE_PREP_TEMPLATES_DIR') }}/config_template.xml"
+    template_file: "{{ lookup('env', 'OLM_BASEKIT_TEMPLATES_DIR') }}/config_template.xml"
     output_dir: "{{ lookup('env', 'OLM_GENERATED_FILES_DIR') }}"
     output_file: "{{ output_dir }}/config.xml"
     wan_ip: "{{ hostvars['opnsense'].ansible_host }}"
