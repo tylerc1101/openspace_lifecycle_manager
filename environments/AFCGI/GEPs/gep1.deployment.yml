@@ -1,0 +1,155 @@
+---
+# OpenSpace Platform Configuration
+# This file contains all deployment variables
+# Run 'task prep' to generate Ansible inventory from this config
+
+# ==============================================================================
+# DEPLOYMENT METADATA
+# ==============================================================================
+deployment:
+  name: "GEP1"
+  type: "basekit"
+  openspace_lifecycle_manager_version: "1.2.0"
+  onboarder_version: "3.5.0-rc7"
+  osms_tooling_version: "1.8.x"
+
+# ==============================================================================
+# SSH CONFIGURATION
+# ==============================================================================
+ssh:
+  user: "kratos"
+  pass: "kratos"
+  become: "kratos"
+
+# ==============================================================================
+# NETWORK CONFIGURATION
+# ==============================================================================
+networks:
+  # Customer/WAN Network (External)
+  customer:
+    gateway: "10.243.76.1"
+    cidr: "/23"
+    dns_servers:
+      - "10.243.25.50"
+      - "10.243.25.53"
+  
+  # Management Network (Internal Cluster)
+  management:
+    network: "192.168.2"
+    cidr: "/24"
+    gateway: "192.168.2.1"
+    dns_servers:
+      - "192.168.2.1"
+  
+  # IDRAC Network
+  idrac:
+    network: "192.168.0"
+    cidr: "/24"
+    gateway: "192.168.0.1"
+
+# ==============================================================================
+# DOMAIN CONFIGURATION
+# ==============================================================================
+domain:
+  base: "gep1.kratos"
+
+# ==============================================================================
+# NTP CONFIGURATION
+# ==============================================================================
+ntp:
+  server: "192.168.2.100"
+  timezone: "Etc/UTC"
+
+# ==============================================================================
+# INFRASTRUCTURE HOSTS
+# ==============================================================================
+infrastructure:
+  # Management Hypervisor
+  mgmt_kvm:
+    wan_ip: "10.243.77.70"
+    wan_interface: "eno12409"
+    mgmt_ip: "192.168.2.6"
+    mgmt_interface: "eno12399"
+    idrac_ip: "192.168.0.4"
+    idrac_interface: "ens3f0"
+    prov_interface: "eno8303"
+  
+  # OPNsense Firewall
+  opnsense:
+    wan_ip: "10.243.77.71"
+    mgmt_ip: "192.168.2.1"
+
+# ==============================================================================
+# CLUSTER NODES
+# ==============================================================================
+# MCM - Infrastructure/Management Cluster
+management_cluster:
+  clusters:
+    - cluster_name: "local"
+      ssh_key: "mcm_ssh_key"
+      nodes:
+        - name: "mcm1"
+          mgmt_ip: "192.168.2.8"
+          mgmt_interface: "enp1s0"
+          idrac_ip: "192.168.0.8"
+  
+# OSMS - OpenSpace Management System
+openspace_management_system:
+  clusters:
+    - cluster_name: "openspace-osms"
+      ssh_key: "osms_ssh_key"
+      nodes:
+        - name: "osms1"
+          mgmt_ip: "192.168.2.9"
+          mgmt_interface: "enp1s0"
+          idrac_ip: "192.168.0.9"
+
+# OSDC - OpenSpace Data Cluster
+openspace_datapath_cluster:
+  clusters:
+    - cluster_name: "openspace-osdc"
+      ssh_key: "osdc_ssh_key"
+      nodes:
+        - name: "osdc1"
+          mgmt_ip: "192.168.2.16"
+          mgmt_interface: "enp1s0"
+          idrac_ip: "192.168.0.16"
+          mac_address: "30:3E:A7:2E:3A:8B"
+          
+        - name: "osdc2"
+          mgmt_ip: "192.168.2.17"
+          mgmt_interface: "enp1s0"
+          idrac_ip: "192.168.0.17"
+          mac_address: "30:3E:A7:2E:3A:8C"
+  
+# ==============================================================================
+# STORAGE CONFIGURATION
+# ==============================================================================
+storage:
+  # NFS storage (if applicable)
+  nfs:
+    enabled: false
+    server: "192.168.2.100"
+    path: "/exports/openspace"
+
+# ==============================================================================
+# VIRTUAL MACHINE CONFIGURATION (for basekit deployments)
+# ==============================================================================
+virtual_machines:
+  mcm:
+    name: "mcm"
+    memory: 16384  # MB
+    vcpus: 8
+    disk_size: 500  # GB
+    backing_store: "/var/lib/libvirt/config/images/9_5_hardened_image_vm.qcow2"
+    os_variant: "rhel9.5"
+    network_bridge: "br-mgmt"
+
+  osms:
+    name: "osms"
+    memory: 32768  # MB
+    vcpus: 16
+    disk_size: 600  # GB
+    backing_store: "/var/lib/libvirt/config/images/9_5_hardened_image_vm.qcow2"
+    os_variant: "rhel9.5"
+    network_bridge: "br-mgmt"

@@ -11,8 +11,9 @@
   
   vars:
     kubeconfig_path: "/root/.kube/config"
-    generated_files_dir: "{{ install_dir }}/generated_files"
-    ssh_key_path: "{{ install_dir }}/.cache/rancher_ssh_key"
+    generated_files_dir: "{{ lookup('env', 'OLM_GENERATED_FILES_DIR') }}"
+    ssh_key_path: "{{ lookup('env', 'ONBOARDER_CACHE_DIR') }}/rancher_ssh_key"
+    clusters_templates_dir: "{{ lookup('env', 'OLM_CLUSTERS_TEMPLATES_DIR') }}"
 
   tasks:
     # ==========================================================================
@@ -111,7 +112,7 @@
 
     - name: Generate deployment YAML
       template:
-        src: "{{ onboarder_dir }}/templates/{{ template_file }}"
+        src: "{{ clusters_templates_dir }}/{{ template_file }}"
         dest: "{{ deployment_file }}"
         mode: '0644'
 

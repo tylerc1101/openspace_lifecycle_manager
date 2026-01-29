@@ -100,7 +100,7 @@ tasks:
     cmds:
       - task: node-prep:run-node-prep
         vars:
-          HOSTS: openspace_data_cluster
+          HOSTS: openspace_datapath_cluster
       - task: clusters:deploy-downstream-cluster
         vars:
           CLUSTER_TYPE: osdc
@@ -110,7 +110,7 @@ tasks:
     cmds:
       - task: clusters:deploy-post-osdc
         vars:
-          HOSTS: openspace_data_cluster
+          HOSTS: openspace_datapath_cluster
 
   destroy-osdc:
     desc: "Destroy OSDC"

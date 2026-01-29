@@ -120,3 +120,12 @@ tasks:
       - task: onboarder:get-kubeconfig
         vars:
           HOSTS: management_cluster
+
+  destroy-mcm:
+    desc: "Destroy Management Cluster"
+    cmds:
+      - python3 {{.TASK_EXECUTER}}
+          --task-id=destroy-mcm 
+          --hosts=localhost 
+          --file={{.TASK_FILE_DIR}}/destroy_mcm.yml 
+          --kind=ansible
