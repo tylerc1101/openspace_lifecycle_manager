@@ -1,0 +1,226 @@
+# OpenSpace LifeCycle Manager Configuration (TOML)
+
+# =============================================================================
+# DEPLOYMENT METADATA
+# =============================================================================
+[deployment]
+name = "GEP1"
+type = "basekit"
+openspace_lifecycle_manager_version = "1.2.0"
+onboarder_version = "3.5.0-rc7"
+osms_tooling_version = "1.8.x"
+
+# =============================================================================
+# GLOBAL VARS (group_vars/all.yml)
+# =============================================================================
+[group_vars.all]
+ansible_user = "kratos"
+ansible_become = true
+ansible_ssh_pass = "kratos"
+ansible_become_pass = "kratos"
+domain_name = "gep1.kratos"
+
+[services.dns]
+provider = "opnsense_vm"           # options: "opnsense_vm", "management_host", "external"
+
+[services.ntp]
+provider = "external"              # options: "management_host", "external"
+server = "192.168.2.100"
+timezone = "Etc/UTC"
+
+# =============================================================================
+# NETWORK CONFIGURATION
+# =============================================================================
+[networks.customer]
+description = "Customer/WAN network (external)"
+gateway = "10.243.76.1"
+cidr = "10.243.76.0/23"
+dns_servers = ["10.243.25.50", "10.243.25.53"]
+
+[networks.management]
+description = "Management network (internal cluster)"
+gateway = "192.168.2.1"
+cidr = "192.168.2.0/24"
+dns_servers = ["192.168.2.1"]
+
+[networks.idrac]
+description = "iDRAC out-of-band network"
+gateway = "192.168.0.1"
+cidr = "192.168.0.0/24"
+
+# =============================================================================
+# STORAGE CONFIGURATION
+# =============================================================================
+[storage.nfs]
+enabled = false
+server = "192.168.2.100"
+path = "/exports/openspace"
+
+# =============================================================================
+# MANAGEMENT HOST
+# =============================================================================
+[management_host]
+description = "Management Server (CONTROL HOST)"
+hostname = "mgmt-kvm"
+kind = "baremetal"
+
+[management_host.connection]
+ansible_host = "10.243.77.70"
+
+[management_host.vars]
+wan = { ip = "10.243.77.70", iface = "eno12409" }
+mgmt = { ip = "192.168.2.6", iface = "eno12399" }
+idrac = { ip = "192.168.0.4", iface = "ens3f0" }
+prov_interface = "eno8303"
+
+[management_host.capabilities]
+run_vms = true        # enable KVM/QEMU virtualization on management host
+bind_server = false   # enable Bind9 DNS server on management host
+ntp_server = false    # enable NTP server on management host
+
+# =============================================================================
+# MCM Setup
+# =============================================================================
+
+[inventory.mcm]
+hosts = ["mcm1"]
+parent_groups = ["upstream_clusters"]
+
+# ----------------------------
+# MCM HOSTS
+# ----------------------------
+[hosts.mcm1]
+description = "MCM node"
+kind = "vm"
+
+[hosts.mcm1.connection]
+ansible_host = "192.168.2.8"
+
+[hosts.mcm1.vars]
+mgmt_interface = "enp1s0"
+idrac_ip = "192.168.0.8"
+
+[hosts.mcm1.vm_override]
+name = "mcm"
+memory_mb = 16384
+vcpus = 8
+disk_gb = 500
+
+# ----------------------------
+# MCM Group Vars
+# ----------------------------
+[group_vars.mcm]
+cluster_name = "local"
+ssh_key = "mcm_ssh_key"
+
+
+# =============================================================================
+# OSMS Setup
+# =============================================================================
+
+[inventory.osms]
+hosts = ["osms1"]
+parent_groups = ["downstream_clusters"]
+
+# ----------------------------
+# OSMS HOSTS
+# ----------------------------
+[hosts.osms1]
+description = "OSMS node"
+kind = "vm"
+
+[hosts.osms1.connection]
+ansible_host = "192.168.2.9"
+
+[hosts.osms1.vars]
+mgmt_interface = "enp1s0"
+idrac_ip = "192.168.0.9"
+
+[hosts.osms1.vm_override]
+name = "osms"
+memory_mb = 32768
+vcpus = 16
+disk_gb = 600
+
+# ----------------------------
+# OSMS Group Vars
+# ----------------------------
+[group_vars.osms]
+cluster_name = "openspace-osms"
+ssh_key = "osms_ssh_key"
+
+
+# =============================================================================
+# OSDC Setup
+# =============================================================================
+
+[inventory.osdc]
+hosts = ["osdc1", "osdc2"]
+parent_groups = ["downstream_clusters"]
+
+# ----------------------------
+# OSDC HOSTS
+# ----------------------------
+
+[hosts.osdc1]
+description = "OSDC node"
+kind = "baremetal"
+
+[hosts.osdc1.connection]
+ansible_host = "192.168.2.16"
+
+[hosts.osdc1.vars]
+mgmt_interface = "enp1s0"
+idrac_ip = "192.168.0.16"
+mac_address = "30:3E:A7:2E:3A:8B"
+
+# ----------------------------
+
+[hosts.osdc2]
+description = "OSDC node"
+kind = "baremetal"
+
+[hosts.osdc2.connection]
+ansible_host = "192.168.2.17"
+
+[hosts.osdc2.vars]
+mgmt_interface = "enp1s0"
+idrac_ip = "192.168.0.17"
+mac_address = "30:3E:A7:2E:3A:8C"
+
+# ----------------------------
+# OSDC Group Vars
+# ----------------------------
+
+[group_vars.osdc]
+cluster_name = "openspace-osdc"
+ssh_key = "osdc_ssh_key"
+
+
+# =============================================================================
+# Utility Host Setup
+# =============================================================================
+
+# OPNsense VM (only deployed if any service.provider = "opnsense_vm")
+[vms.opnsense]
+mgmt_ip = "192.168.2.1"
+wan_ip = "10.243.77.71"
+
+
+
+# =============================================================================
+# DEFAULTS (optional)
+# =============================================================================
+[defaults.vm]
+backing_store = "/var/lib/libvirt/config/images/9_5_hardened_image_vm.qcow2"
+os_variant = "rhel9.5"
+network_bridge = "br-mgmt"
+
+[inventory.upstream_clusters]
+parent_groups = ["clusters"]
+
+[inventory.downstream_clusters]
+parent_groups = ["clusters"]
+
+[inventory.clusters]
+# Top-level group containing all Kubernetes clusters

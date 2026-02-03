@@ -1,0 +1,20 @@
+# generated - do not edit
+
+{% set h = item.value %}
+
+networks:
+{{ (h.networks | default({}))
+   | dict2items
+   | rejectattr('key', 'equalto', 'connect_via')
+   | items2dict
+   | to_nice_yaml(indent=2)
+   | indent(2, true)
+}}
+
+networking:
+{{ (h.networking | default({})) | to_nice_yaml(indent=2) | indent(2, true) }}
+
+{% set hv = (h.host_vars | default({})) %}
+{% if hv %}
+{{ hv | to_nice_yaml(indent=2) }}
+{% endif %}

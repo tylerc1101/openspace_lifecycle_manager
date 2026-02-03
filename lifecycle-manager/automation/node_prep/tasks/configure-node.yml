@@ -45,33 +45,43 @@
         name: chronyd
         enabled: yes
         state: started
-    
-#=============================================================================
-# Cluster Node Configuration (Run on MCM, OSMS, and OSDC nodes)
-#=============================================================================
-    - name: Run Cluster Node Configuration Tasks
-      include_tasks: cluster-tasks.yml
-      when: "'cluster_nodes' in group_names"
 
+#=============================================================================
+# Management Host Basekit Configuration Only
+#=============================================================================
+    - name: Run Management Host Configuration Tasks
+      include_tasks: management-host-basekit-tasks.yml
+      when: "'mgmt_role_basekit' in group_names"
+    
 #=============================================================================
 # MCM Node Configuration Only
 #=============================================================================
     - name: Run MCM Node Configuration Tasks
       include_tasks: mcm-tasks.yml
-      when: "'management_cluster' in group_names"
+      when: "'role_mcm' in group_names"
     
 #=============================================================================
 # OSMS Node Configuration Only
 #============================================================================= 
     - name: Run OSMS Node Configuration Tasks
       include_tasks: osms-tasks.yml
-      when: "'openspace_management_system' in group_names"
+      when: "'role_osms' in group_names"
 
 #=============================================================================
 # OSDC Node Configuration Only
 #=============================================================================
     - name: Run OSDC Node Configuration Tasks
       include_tasks: osdc-tasks.yml
-      when: "'openspace_data_cluster' in group_names"
+      when: "'role_osdc' in group_names"
+
+#=============================================================================
+# Cluster Node Configuration (Run on MCM, OSMS, and OSDC nodes)
+#=============================================================================
+    - name: Run Cluster Node Configuration Tasks
+      include_tasks: cluster-tasks.yml
+      when:
+        - "'role_mcm' in group_names"
+        - "'role_osms' in group_names"
+        - "'role_osdc' in group_names"
 
 

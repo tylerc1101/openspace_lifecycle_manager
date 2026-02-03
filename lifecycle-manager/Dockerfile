@@ -86,26 +86,17 @@ ENV ONBOARDER_WORK_DIR=/docker-workspace \
     ONBOARDER_VERSION=${ONBOARDER_VERSION}
 
 # Lifecycle Manager Environment variables
-ENV OLM_WORK_DIR=/openspace \
-    OLM_DEPLOYMENT_YAML=/openspace/deployment.yml \
-    OLM_GENERATED_FILES_DIR=/openspace/generated_files \
+ENV OLM_GENERATED_FILES_DIR=/openspace/generated_files \
     OLM_INVENTORY_YAML=/openspace/generated_files/inventory.yml \
     OLM_DATA_DIR=/openspace/data \
     OLM_ANSIBLE_CFG=/openspace/data/ansible.cfg \
-    OLM_CUSTOM_DIR=/openspace/custom \
-    OLM_CUSTOM_TASKFILE=/openspace/custom/Taskfile.yml \
-    OLM_CUSTOM_TEMPLATES_DIR=/openspace/custom/templates \
     OLM_ONBOARDER_TASK_DIR=/openspace/data/onboarder/tasks \
-    OLM_ONBOARDER_TASKFILE=/openspace/data/onboarder/Taskfile.yml \
     OLM_ONBOARDER_TEMPLATES_DIR=/openspace/data/onboarder/templates \
     OLM_BASEKIT_TASK_DIR=/openspace/data/basekit/tasks \
     OLM_BASEKIT_TEMPLATES_DIR=/openspace/data/basekit/templates \
-    OLM_BASEKIT_TASKFILE=/openspace/data/basekit/Taskfile.yml \
     OLM_CLUSTERS_TASK_DIR=/openspace/data/clusters/tasks \
     OLM_CLUSTERS_TEMPLATES_DIR=/openspace/data/clusters/templates \
-    OLM_CLUSTERS_TASKFILE=/openspace/data/clusters/Taskfile.yml \
     OLM_NODE_PREP_TASK_DIR=/openspace/data/node_prep/tasks \
-    OLM_NODE_PREP_TASKFILE=/openspace/data/node_prep/Taskfile.yml \
     OLM_NODE_PREP_TEMPLATES_DIR=/openspace/data/node_prep/templates \
     OLM_LIFECYCLE_VERSION=${LIFECYCLE_VERSION}
 

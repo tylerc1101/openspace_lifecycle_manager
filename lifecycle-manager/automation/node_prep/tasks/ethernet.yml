@@ -1,0 +1,45 @@
+# connections: list of dict2items entries like:
+#   - key: ens3f0
+#     value: { type: ethernet, members: [ens3f0] }
+
+- name: Ensure ethernet connections exist
+  community.general.nmcli:
+    conn_name: "{{ item.key }}"
+    ifname: "{{ (item.value.members | default([item.key]))[0] }}"
+    type: ethernet
+    state: present
+    autoconnect: yes
+    method4: "{{ (l3.address is defined) | ternary('manual','disabled') }}"
+    ip4: "{{ l3.address | default(omit) }}"
+    gw4: "{{ l3.gateway | default(omit) }}"
+    dns4: "{{ l3.dns | default(omit) }}"
+    method6: disabled
+  vars:
+    l3: "{{ lookup('vars', 'l3_map').get(item.key, {}) }}"
+  loop: "{{ connections }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+# Build l3_map once here (connection -> {address,gateway,dns})
+- name: Build l3_map for ethernet tasks
+  ansible.builtin.set_fact:
+    l3_map: "{{ l3_map | default({}) | combine(mapped, recursive=True) }}"
+  vars:
+    mapped: >-
+      {%- set m = {} -%}
+      {%- for n in (networks_map | dict2items) -%}
+        {%- if n.key != 'connect_via' -%}
+          {%- set v = n.value -%}
+          {%- if (v.mode | default('')) != 'oob'
+                and v.attach_to is defined
+                and v.ip is defined -%}
+            {%- set _ = m.update({
+              (v.attach_to): {
+                'address': v.ip
+              }
+            }) -%}
+          {%- endif -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ m }}
+  changed_when: false

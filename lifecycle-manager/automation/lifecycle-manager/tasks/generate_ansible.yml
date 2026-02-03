@@ -1,0 +1,243 @@
+- name: Generate Ansible inventory + vars from deployment config
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    - name: Load deployment config
+      ansible.builtin.set_fact:
+        cfg: "{{ lookup('file', config_path) | from_yaml }}"
+
+    - name: Ensure output dirs exist
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ out_dir }}"
+        - "{{ out_dir }}/group_vars"
+        - "{{ out_dir }}/host_vars"
+
+    - name: Validate required top-level keys
+      ansible.builtin.assert:
+        that:
+          - cfg.metadata is defined
+          - cfg.access is defined
+          - cfg.site is defined
+          - cfg.networks is defined
+          - cfg.management is defined
+          - cfg.management.hosts is defined
+          - cfg.clusters is defined
+        fail_msg: "Config missing required keys (metadata/access/site/networks/management.hosts/clusters)."
+
+    # -------------------------------------------------------------------------
+    # Validate connect_via references a defined network on each host/node
+    # -------------------------------------------------------------------------
+    - name: Validate management host networks.connect_via references exist
+      ansible.builtin.assert:
+        that:
+          - item.value.networks is defined
+          - item.value.networks.connect_via is defined
+          - item.value.networks[item.value.networks.connect_via] is defined
+          - item.value.networks[item.value.networks.connect_via].ip is defined
+        fail_msg: >-
+          management.hosts.{{ item.key }} networks.connect_via must reference a network that exists
+          and has an ip. Example:
+          networks: { connect_via: customer, customer: { ip: ... } }
+      loop: "{{ cfg.management.hosts | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Flatten cluster nodes (nodes is a dict)
+      ansible.builtin.set_fact:
+        nodes_flat: "{{ nodes_flat | default([]) + flattened }}"
+      vars:
+        flattened: >-
+          {%- set out = [] -%}
+          {%- for c in (cfg.clusters | default({}) | dict2items) -%}
+            {%- for n in ((c.value.nodes | default({})) | dict2items) -%}
+              {%- set _ = out.append({
+                'cluster_key': c.key,
+                'cluster': c.value,
+                'node_name': n.key,
+                'node': n.value
+              }) -%}
+            {%- endfor -%}
+          {%- endfor -%}
+          {{ out }}
+
+    - name: Validate node networks.connect_via references exist
+      ansible.builtin.assert:
+        that:
+          - item.node.networks is defined
+          - item.node.networks.connect_via is defined
+          - item.node.networks[item.node.networks.connect_via] is defined
+          - item.node.networks[item.node.networks.connect_via].ip is defined
+        fail_msg: >-
+          clusters.{{ item.cluster_key }}.nodes.{{ item.node_name }} networks.connect_via must reference a network that exists
+          and has an ip.
+      loop: "{{ nodes_flat }}"
+      loop_control:
+        label: "{{ item.cluster_key }}/{{ item.node_name }}"
+
+    # -------------------------------------------------------------------------
+    # Build minimal registries used by templates
+    # -------------------------------------------------------------------------
+    - name: Build management host registry (for inventory + host_vars)
+      ansible.builtin.set_fact:
+        mgmt_hosts: "{{ cfg.management.hosts | default({}) }}"
+
+    - name: Build clusters registry (for inventory + cluster group_vars)
+      ansible.builtin.set_fact:
+        clusters: "{{ cfg.clusters | default({}) }}"
+
+    - name: Build mgmt_hosts_derived (inventory-only derived fields)
+      ansible.builtin.set_fact:
+        mgmt_hosts_derived: >-
+          {{
+            mgmt_hosts_derived | default({}) |
+            combine({
+              item.key: (item.value |
+                combine({
+                  '_inv': {
+                    'ansible_host': item.value.networks[item.value.networks.connect_via].ip,
+                    'role': (item.value.role | default('')),
+                    'host_type': (item.value.host_type | default('')),
+                    'is_primary': ((item.value.priority | default('')) == 'primary')
+                  }
+                }, recursive=True)
+              )
+            }, recursive=True)
+          }}
+      loop: "{{ mgmt_hosts | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Build nodes_derived (inventory-only derived fields; role inherited from cluster)
+      ansible.builtin.set_fact:
+        nodes_derived: >-
+          {{
+            nodes_derived | default({}) |
+            combine({
+              item.node_name: (item.node |
+                combine({
+                  '_inv': {
+                    'ansible_host': item.node.networks[item.node.networks.connect_via].ip,
+                    'cluster_key': item.cluster_key,
+                    'role': (item.cluster.role | default('')),
+                    'host_type': (item.node.host_type | default(''))
+                  }
+                }, recursive=True)
+              )
+            }, recursive=True)
+          }}
+      loop: "{{ nodes_flat }}"
+      loop_control:
+        label: "{{ item.cluster_key }}/{{ item.node_name }}"
+
+    - name: Compute unique node roles and all host_types (for inventory grouping)
+      ansible.builtin.set_fact:
+        node_roles: "{{ (clusters | dict2items | map(attribute='value.role') | select('defined') | list) | unique | sort }}"
+        all_types: >-
+          {{
+            (
+              (mgmt_hosts_derived | dict2items | map(attribute='value') | map(attribute='_inv') | map(attribute='host_type') | list)
+              +
+              (nodes_derived | dict2items | map(attribute='value') | map(attribute='_inv') | map(attribute='host_type') | list)
+            )
+            | select('defined') | list | unique | sort
+          }}
+
+    # -------------------------------------------------------------------------
+    # Build sanitized host_vars payloads
+    # Rule: Always include networks + networking; then flatten host_vars at top.
+    # -------------------------------------------------------------------------
+    - name: Build mgmt_out (only networks, networking, host_vars)
+      ansible.builtin.set_fact:
+        mgmt_out: >-
+          {{
+            mgmt_out | default({}) |
+            combine({
+              item.key: {
+                'networks': (item.value.networks | default({})),
+                'networking': (item.value.networking | default({})),
+                'host_vars': (item.value.host_vars | default({}))
+              }
+            }, recursive=True)
+          }}
+      loop: "{{ mgmt_hosts | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Build nodes_out (only networks, networking, host_vars)
+      ansible.builtin.set_fact:
+        nodes_out: >-
+          {{
+            nodes_out | default({}) |
+            combine({
+              item.node_name: {
+                'networks': (item.node.networks | default({})),
+                'networking': (item.node.networking | default({})),
+                'host_vars': (item.node.host_vars | default({}))
+              }
+            }, recursive=True)
+          }}
+      loop: "{{ nodes_flat }}"
+      loop_control:
+        label: "{{ item.cluster_key }}/{{ item.node_name }}"
+
+    # -------------------------------------------------------------------------
+    # Write outputs
+    # -------------------------------------------------------------------------
+    - name: Write inventory.ini (clusters + roles + types)
+      ansible.builtin.template:
+        src: "{{ templates_dir }}/inventory.ini.j2"
+        dest: "{{ out_dir }}/inventory.ini"
+        mode: "0644"
+
+    - name: Write group_vars/all.yml (global context)
+      ansible.builtin.template:
+        src: "{{ templates_dir }}/group_vars_all.yml.j2"
+        dest: "{{ out_dir }}/group_vars/all.yml"
+        mode: "0644"
+
+    - name: Write group_vars/management_hosts.yml (from management.group_vars)
+      ansible.builtin.template:
+        src: "{{ templates_dir }}/group_vars_management_hosts.yml.j2"
+        dest: "{{ out_dir }}/group_vars/management_hosts.yml"
+        mode: "0644"
+
+    - name: Write per-cluster group_vars (from clusters.<name>.group_vars)
+      ansible.builtin.template:
+        src: "{{ templates_dir }}/group_vars_cluster.yml.j2"
+        dest: "{{ out_dir }}/group_vars/cluster_{{ item.key }}.yml"
+        mode: "0644"
+      loop: "{{ clusters | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Write host_vars for management hosts (networks + networking + host_vars)
+      ansible.builtin.template:
+        src: "{{ templates_dir }}/host_vars.yml.j2"
+        dest: "{{ out_dir }}/host_vars/{{ item.key }}.yml"
+        mode: "0644"
+      loop: "{{ mgmt_out | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Write host_vars for cluster nodes (networks + networking + host_vars)
+      ansible.builtin.template:
+        src: "{{ templates_dir }}/host_vars.yml.j2"
+        dest: "{{ out_dir }}/host_vars/{{ item.key }}.yml"
+        mode: "0644"
+      loop: "{{ nodes_out | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Summary
+      ansible.builtin.debug:
+        msg:
+          - "Generated: {{ out_dir }}/inventory.ini"
+          - "Generated: {{ out_dir }}/group_vars/all.yml"
+          - "Generated: {{ out_dir }}/group_vars/management_hosts.yml"
+          - "Generated: {{ out_dir }}/group_vars/cluster_*.yml ({{ clusters | length }} files)"
+          - "Generated: {{ out_dir }}/host_vars/*.yml ({{ (mgmt_out | length) + (nodes_out | length) }} files)"

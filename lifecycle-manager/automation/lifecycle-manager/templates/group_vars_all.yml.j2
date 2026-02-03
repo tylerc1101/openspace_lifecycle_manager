@@ -1,0 +1,19 @@
+# generated - do not edit
+
+metadata:
+{{ cfg.metadata | to_nice_yaml(indent=2) | indent(2, true) }}
+
+site:
+{{ cfg.site | to_nice_yaml(indent=2) | indent(2, true) }}
+
+services:
+{{ cfg.services | default({}) | to_nice_yaml(indent=2) | indent(2, true) }}
+
+networks:
+{{ cfg.networks | default({}) | to_nice_yaml(indent=2) | indent(2, true) }}
+
+optional:
+{{ cfg.optional | default({}) | to_nice_yaml(indent=2) | indent(2, true) }}
+
+access:
+{{ cfg.access | to_nice_yaml(indent=2) | indent(2, true) }}

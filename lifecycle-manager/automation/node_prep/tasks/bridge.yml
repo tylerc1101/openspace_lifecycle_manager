@@ -1,0 +1,54 @@
+# connections entries like:
+#   - key: br-mgmt
+#     value: { type: bridge, members: [eno12399] }
+
+- name: Build l3_map for bridge tasks
+  ansible.builtin.set_fact:
+    l3_map: "{{ l3_map | default({}) | combine(mapped, recursive=True) }}"
+  vars:
+    mapped: >-
+      {%- set m = {} -%}
+      {%- for n in (networks_map | dict2items) -%}
+        {%- if n.key != 'connect_via' -%}
+          {%- set v = n.value -%}
+          {%- if (v.mode | default('')) != 'oob'
+                and v.attach_to is defined
+                and v.ip is defined -%}
+            {%- set _ = m.update({
+              (v.attach_to): {
+                'address': v.ip
+              }
+            }) -%}
+          {%- endif -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ m }}
+  changed_when: false
+
+- name: Ensure bridge master connections exist (and apply IP if owned)
+  community.general.nmcli:
+    conn_name: "{{ item.key }}"
+    ifname: "{{ item.key }}"
+    type: bridge
+    state: present
+    autoconnect: yes
+    method4: "{{ (l3_map[item.key].address is defined) | ternary('manual','disabled') }}"
+    ip4: "{{ l3_map[item.key].address | default(omit) }}"
+    method6: disabled
+  loop: "{{ connections }}"
+  loop_control:
+    label: "{{ item.key }}"
+
+- name: Ensure bridge-slave profiles exist for member NICs
+  community.general.nmcli:
+    conn_name: "{{ item.0.key }}-{{ item.1 }}"
+    ifname: "{{ item.1 }}"
+    type: bridge-slave
+    master: "{{ item.0.key }}"
+    autoconnect: yes
+    method4: disabled
+    method6: disabled
+    state: present
+  loop: "{{ connections | subelements('value.members', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.0.key }} <- {{ item.1 }}"

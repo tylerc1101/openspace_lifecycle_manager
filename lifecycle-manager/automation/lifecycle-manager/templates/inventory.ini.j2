@@ -1,0 +1,68 @@
+{# generated - do not edit #}
+
+[management_hosts]
+{% for hname, h in (mgmt_hosts_derived | default({})).items() %}
+{{ hname }} ansible_host={{ h._inv.ansible_host }}
+{% endfor %}
+
+[primary_management_host]
+{% for hname, h in (mgmt_hosts_derived | default({})).items() %}
+{% if h._inv.is_primary %}
+{{ hname }}
+{% endif %}
+{% endfor %}
+
+{# cluster groups #}
+{% for cname, c in (clusters | default({})).items() %}
+[cluster_{{ cname }}]
+{% for nname, n in (c.nodes | default({})).items() %}
+{{ nname }} ansible_host={{ n.networks[n.networks.connect_via].ip }}
+{% endfor %}
+
+{% endfor %}
+
+{# role groups (nodes inherit role from cluster) #}
+{% for r in (node_roles | default([])) %}
+[role_{{ r }}]
+{% for cname, c in (clusters | default({})).items() %}
+{% if (c.role | default('')) == r %}
+{% for nname, n in (c.nodes | default({})).items() %}
+{{ nname }}
+{% endfor %}
+{% endif %}
+{% endfor %}
+
+{% endfor %}
+
+{# management role groups (optional) #}
+{% set mgmt_roles = [] %}
+{% for hname, h in (mgmt_hosts_derived | default({})).items() %}
+{% set r = (h.role | default('')) %}
+{% if r and (r not in mgmt_roles) %}{% set _ = mgmt_roles.append(r) %}{% endif %}
+{% endfor %}
+
+{% for r in mgmt_roles | sort %}
+[mgmt_role_{{ r }}]
+{% for hname, h in (mgmt_hosts_derived | default({})).items() %}
+{% if (h.role | default('')) == r %}
+{{ hname }}
+{% endif %}
+{% endfor %}
+
+{% endfor %}
+
+{# host_type groups #}
+{% for t in (all_types | default([])) %}
+[type_{{ t }}]
+{% for hname, h in (mgmt_hosts_derived | default({})).items() %}
+{% if (h._inv.host_type | default('')) == t %}
+{{ hname }}
+{% endif %}
+{% endfor %}
+{% for nname, n in (nodes_derived | default({})).items() %}
+{% if (n._inv.host_type | default('')) == t %}
+{{ nname }}
+{% endif %}
+{% endfor %}
+
+{% endfor %}
