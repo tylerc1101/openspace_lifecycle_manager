@@ -39,9 +39,14 @@ tasks:
     vars:
       HOSTS: primary_management_host
     cmds:
-      - task: run-node-prep
-      - task: deploy-opnsense
-      - task: deploy-host-vms
+      - task: configure-networking
+      - task: configure-node
+      - task: copy-ssh-key
+      - task: configure-opnsense
+      - task: copy-opnsense-config
+      - task: deploy-opnsense-vm
+      - task: deploy-vms
+      - task: configure-vm-partitions
 
   #--------------------------------------------------------------------------
   # MCM Lifecycle Workflows
@@ -49,7 +54,6 @@ tasks:
   deploy-mcm:
     desc: "Deploy Management Cluster (RKE2, Rancher, Harbor, GitOps)"
     cmds:
-      - python3 workflow_runner.py --start deploy-mcm
       - task: prep-onboarder-container
       - task: deploy-rke2-cluster
       - task: bootstrap-container-images
@@ -59,7 +63,6 @@ tasks:
       - task: terraform-rancher
       - task: deploy-gitea
       - task: deploy-argocd
-      - python3 workflow_runner.py --complete deploy-mcm
 
   destroy-mcm:
     desc: "Destroy Management Cluster"
@@ -181,16 +184,6 @@ tasks:
   #--------------------------------------------------------------------------
   # Node preparation internals
   #--------------------------------------------------------------------------
-  run-node-prep:
-    desc: "Prepare target nodes (copy SSH keys, configure system)"
-    internal: true
-    requires:
-      vars: [HOSTS]
-    cmds:
-      - task: configure-networking
-      - task: configure-node
-      - task: copy-ssh-key
-
   configure-networking:
     desc: Configure networking on Target Hosts
     internal: true
@@ -230,14 +223,6 @@ tasks:
   #--------------------------------------------------------------------------
   # Infrastructure internals
   #--------------------------------------------------------------------------
-  deploy-opnsense:
-    desc: Deploy OPNsense VM on Management KVM
-    internal: true
-    cmds:
-      - task: configure-opnsense
-      - task: copy-opnsense-config
-      - task: deploy-opnsense-vm
-
   configure-opnsense:
     desc: Generate OPNsense Configuration
     internal: true
@@ -270,15 +255,6 @@ tasks:
         sh: yq '.infrastructure.mgmt_kvm.wan_ip' {{env "OLM_WORK_DIR"}}/deployment.yml
     cmds:
       - ssh -t -o StrictHostKeyChecking=no -i {{env "ONBOARDER_CACHE_DIR"}}/rancher_ssh_key {{.SSH_USER}}@{{.MGMT_HOST}} 'sudo bash /var/lib/libvirt/config/vm_config/opnsense/install_opnsense.sh'
-
-  deploy-host-vms:
-    desc: Deploy Host VMs on Management KVM
-    internal: true
-    requires:
-      vars: [HOSTS]
-    cmds:
-      - task: deploy-vms
-      - task: configure-vm-partitions
 
   deploy-vms:
     desc: Deploy VMs on Management KVM
