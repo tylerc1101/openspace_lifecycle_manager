@@ -1,6 +1,6 @@
 ---
 - name: Generate OPNsense config from template with variable replacement
-  hosts: "{{ target_hosts | default('localhost') }}"
+  hosts: localhost
   
   vars:
     template_file: "{{ lookup('env', 'OLM_BASEKIT_TEMPLATES_DIR') }}/config_template.xml"

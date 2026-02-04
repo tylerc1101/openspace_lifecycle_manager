@@ -1,9 +1,22 @@
 - name: Configure "{{ target_hosts }}"
-  hosts: "{{ target_hosts }}"
+  hosts: all
   become: true
 
   vars:
     node_prep_templates_dir: "{{ lookup('env', 'OLM_NODE_PREP_TEMPLATES_DIR') }}"
+
+    # --- networking include needs these ---
+    connection_type_order:
+      - ethernet
+      - bond
+      - bridge
+      - vlan
+
+  pre_task:
+    - name: Configure host networking from host_vars (nmcli)
+      include_tasks: configure-networking-tasks.yml
+      when: 
+        - "'type_baremetal' in group_names" 
 
   tasks:
 #=============================================================================

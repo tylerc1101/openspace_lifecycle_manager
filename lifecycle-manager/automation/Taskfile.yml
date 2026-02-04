@@ -1,74 +1,90 @@
 version: '3'
 
 vars:
-  WORK_DIR: '{{.TASKFILE_DIR}}'                                          # Will generate all files local to this Taskfile
-  DEPLOYMENT_FILE: '{{.TASKFILE_DIR}}/deployment.yml'                    # Path to deployment configuration file
-  DATA_DIR: '{{.TASKFILE_DIR}}/data'                                     # Path to data directory (Ansible config, SSH keys, etc.)
+  ENV_DIR: '{{.ENV_DIR | default .TASKFILE_DIR}}'
+  DEPLOYMENT_FILE: '{{.ENV_DIR}}/deployment.yml'
+  GENERATED_DIR: '{{.ENV_DIR}}/generated'
+  INVENTORY: '{{.GENERATED_DIR}}/inventory.ini'
 
-  AUTOMATION_DIR: '/openspace/automation'
+  AUTOMATION_DIR: '{{.AUTOMATION_DIR | default "/openspace/automation"}}'
   LIFECYCLE_AUTOMATION_DIR: '{{.AUTOMATION_DIR}}/lifecycle-manager'
   BASEKIT_AUTOMATION_DIR: '{{.AUTOMATION_DIR}}/basekit'
   CLUSTERS_AUTOMATION_DIR: '{{.AUTOMATION_DIR}}/clusters'
   NODE_PREP_AUTOMATION_DIR: '{{.AUTOMATION_DIR}}/node_prep'
   ONBOARDER_AUTOMATION_DIR: '{{.AUTOMATION_DIR}}/onboarder'
+  OPNSENSE_AUTOMATION_DIR: '{{.AUTOMATION_DIR}}/opnsense'
+  VM_AUTOMATION_DIR: '{{.AUTOMATION_DIR}}/vm_management'
 
 tasks:
-#============================================================================
-# RECOMMENDED WORKFLOWS AND TASKS
-#============================================================================
-# These are complete, opinionated workflows for common use cases.
-# You can use these as-is, or compose your own from the building blocks below.
-# Recommended to compose your own Taskfile for custom workflows to avoid
-# modifying the core lifecycle-manager Taskfile.
-
-  #--------------------------------------------------------------------------
-  # Initialization 
-  # This is a mandatory first step before any deployment
-  #--------------------------------------------------------------------------
   init:
-    desc: "Initialize and validate deployment from deployment.toml"
+    desc: "Generate + validate from deployment.yml"
     cmds:
-      - task: generate-ansible-files
-      - task: validate-prereqs
+      - task: _ensure-generated
+      #- task: validate
+      - task: nodeprep:ssh-timeout:relax
+
+  validate:
+    desc: "Validate deployment configuration for completeness and correctness"
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.LIFECYCLE_AUTOMATION_DIR}}/tasks/validate.yml"
 
   #--------------------------------------------------------------------------
-  # Basekit Lifecycle Workflows
+  # Default Basekit Lifecycle
   #--------------------------------------------------------------------------
-  deploy-basekit:
+  default:basekit:deploy:
     desc: "Deploy base infrastructure (VMs, networking, OPNsense)"
-    vars:
-      HOSTS: primary_management_host
     cmds:
-      - task: run-node-prep
-      - task: deploy-opnsense
-      - task: deploy-host-vms
+      - task: init
+      - task: nodeprep:run
+        vars: 
+          HOSTS: primary_management_host
+      - task: opnsense:deploy
+      - task: vm:mcm:deploy
+      - task: vm:osms:deploy
+      - task: cluster:mcm:deploy
+      - task: cluster:osms:deploy
+      - task: cluster:osdc:deploy
 
   #--------------------------------------------------------------------------
   # MCM Lifecycle Workflows
   #--------------------------------------------------------------------------
-  deploy-mcm:
+  cluster:mcm:deploy:
     desc: "Deploy Management Cluster (RKE2, Rancher, Harbor, GitOps)"
     cmds:
-      - python3 workflow_runner.py --start deploy-mcm
-      - task: prep-onboarder-container
-      - task: deploy-rke2-cluster
-      - task: bootstrap-container-images
-      - task: deploy-harbor
-      - task: load-darksite-bundles
-      - task: deploy-rancher
-      - task: terraform-rancher
-      - task: deploy-gitea
-      - task: deploy-argocd
-      - python3 workflow_runner.py --complete deploy-mcm
-
-  destroy-mcm:
-    desc: "Destroy Management Cluster"
-    cmds:
-      - task: destroy-cluster
+      - task: nodeprep:run
         vars:
           HOSTS: management_cluster
+      - task: onboarder:prep
+      - task: onboarder:rke2:deploy
+      - task: onboarder:harbor:deploy
+      - task: onboarder:rancher:deploy
+      - task: onboarder:gitea:deploy
+      - task: onboarder:argocd:deploy
 
-  get-mcm-kubeconfig:
+  #cluster:mcm:destroy:
+  #  desc: "Destroy Management Cluster"
+  #  cmds:
+  #    - task: destroy-cluster
+  #      vars:
+  #        HOSTS: management_cluster
+
+  vm:mcm:deploy:
+    desc: "Deploy Management Cluster VMs on Management KVM"
+    vars:
+      HOSTS: management_cluster
+    cmds:
+      - task: vms:libvirt:deploy
+
+  #vm:mcm:destroy:
+  #  desc: "Destroy Management Cluster VMs on Management KVM"
+  #  vars:
+  #    HOSTS: management_cluster
+  #  cmds:
+  #    - task: vms:libvirt:destroy
+
+  kubeconfig:mcm:get:
     desc: "Retrieve MCM kubeconfig file"
     cmds:
       - task: get-kubeconfig
@@ -78,26 +94,38 @@ tasks:
   #--------------------------------------------------------------------------
   # OSMS Lifecycle Workflows
   #--------------------------------------------------------------------------
-  deploy-osms:
+  cluster:osms:deploy:
     desc: "Deploy OpenSpace Management System cluster"
     cmds:
-      - python3 workflow_runner.py --start deploy-osms
-      - task: run-node-prep
+      - task: nodeprep:run
         vars:
           HOSTS: openspace_management_system
       - task: deploy-downstream-cluster
         vars:
           CLUSTER_TYPE: osms
-      - python3 workflow_runner.py --complete deploy-osms
 
-  destroy-osms:
-    desc: "Destroy OpenSpace Management System cluster"
+  #cluster:osms:destroy:
+  #  desc: "Destroy OpenSpace Management System cluster"
+  #  cmds:
+  #    - task: destroy-cluster
+  #      vars:
+  #        HOSTS: openspace_management_system
+
+  vm:osms:deploy:
+    desc: "Deploy OpenSpace Management System VMs on Management KVM"
+    vars:
+      HOSTS: openspace_management_system
     cmds:
-      - task: destroy-cluster
-        vars:
-          HOSTS: openspace_management_system
+      - task: vms:libvirt:deploy
 
-  get-osms-kubeconfig:
+  #vm:osms:destroy:
+  #  desc: "Destroy OpenSpace Management System VMs on Management KVM"
+  #  vars:
+  #    HOSTS: openspace_management_system
+  #  cmds:
+  #    - task: vms:libvirt:destroy
+
+  kubeconfig:osms:get:
     desc: "Retrieve OSMS kubeconfig file"
     cmds:
       - task: get-kubeconfig
@@ -107,10 +135,9 @@ tasks:
   #--------------------------------------------------------------------------
   # OSDC Lifecycle Workflows
   #--------------------------------------------------------------------------
-  deploy-osdc:
+  cluster:osdc:deploy:
     desc: "Deploy OpenSpace Data Cluster"
     cmds:
-      - python3 workflow_runner.py --start deploy-osdc
       - task: run-node-prep
         vars:
           HOSTS: openspace_datapath_cluster
@@ -120,249 +147,130 @@ tasks:
       - task: deploy-post-osdc
         vars:
           HOSTS: openspace_datapath_cluster
-      - python3 workflow_runner.py --complete deploy-osdc
 
-  destroy-osdc:
-    desc: "Destroy OpenSpace Data Cluster"
-    cmds:
-      - task: destroy-cluster
-        vars:
-          HOSTS: openspace_datapath_cluster
+  #cluster:osdc:destroy:
+  #  desc: "Destroy OpenSpace Data Cluster"
+  #  cmds:
+  #    - task: destroy-cluster
+  #      vars:
+  #        HOSTS: openspace_datapath_cluster
 
-  get-osdc-kubeconfig:
+  kubeconfig:osms:get:
     desc: "Retrieve OSDC kubeconfig file"
     cmds:
       - task: get-kubeconfig
         vars:
           CLUSTER_TYPE: osdc
 
-
-
-
-
-
-
-
-
-
-
-
-
 #============================================================================
 # BUILDING BLOCKS - Composable tasks for custom workflows
 #============================================================================
-  
-  #--------------------------------------------------------------------------
-  # Initialization internals
-  #--------------------------------------------------------------------------
-  generate-ansible-files:
-    desc: Generate ansible inventory and variable files from deployment config
-    internal: true
-    cmds:
-      - >
-        ansible-playbook
-        -i localhost
-        -c local
-        {{.LIFECYCLE_AUTOMATION_DIR}}/tasks/generate_ansible.yml
-        --extra-vars "config_path={{.DEPLOYMENT_FILE}}"
-        --extra-vars "out_dir={{.WORK_DIR}}/generated"
-        --extra-vars "templates_dir={{.LIFECYCLE_AUTOMATION_DIR}}/templates"
-    status:
-      - test -f {{.WORK_DIR}}/generated/inventory.ini
-      - test -d {{.WORK_DIR}}/generated/host_vars
-      - test -d {{.WORK_DIR}}/generated/group_vars
-
-  validate-config:
-    desc: "Validate deployment configuration for completeness and correctness"
-    internal: true
-    cmds:
-      - ansible-playbook {{.ONBOARDER_AUTOMATION_DIR}}/validate.yml
 
   #--------------------------------------------------------------------------
   # Node preparation internals
   #--------------------------------------------------------------------------
-  run-node-prep:
-    desc: "Prepare target nodes (copy SSH keys, configure system)"
+  nodeprep:run:
+    desc: "Prepare target nodes (networking, nodeprep, ssh keys)"
     internal: true
     requires:
       vars: [HOSTS]
+    vars:
+      HOSTS: "{{.HOSTS}}"
     cmds:
-      - task: configure-networking
-      - task: configure-node
-      - task: copy-ssh-key
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.NODE_PREP_AUTOMATION_DIR}}/main.yml"
+          LIMIT: "{{.HOSTS}}"
 
-  configure-networking:
-    desc: Configure networking on Target Hosts
+  nodeprep:ssh-timeout:relax:
+    desc: "Relax SSH timeout settings for Ansible runs"
     internal: true
-    requires:
-      vars: [HOSTS]
     cmds:
-      - > 
-        ansible-playbook
-        -i {{.WORK_DIR}}/inventory.yml
-        {{.NODE_PREP_AUTOMATION_DIR}}/configure-networking.yml
-        --extra-vars "target_hosts={{.HOSTS}}"
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.NODE_PREP_AUTOMATION_DIR}}/tasks/ssh_timeouts.yml"
+          TAGS: "relax"
 
-  copy-ssh-key:
-    desc: Copy SSH Key to Target Hosts
+  nodeprep:ssh-timeout:restore:
+    desc: "Restore SSH timeout settings for Ansible runs"
     internal: true
-    requires:
-      vars: [HOSTS]
     cmds:
-      - > 
-        ansible-playbook
-        -i {{.WORK_DIR}}/inventory.yml
-        {{.NODE_PREP_AUTOMATION_DIR}}/copy_ssh_key.yml
-        --extra-vars "target_hosts={{.HOSTS}}"
-
-  configure-node:
-    desc: Configure Target Hosts
-    internal: true
-    requires:
-      vars: [HOSTS]
-    cmds:
-      - > 
-        ansible-playbook
-        -i {{.WORK_DIR}}/inventory.yml
-        {{.NODE_PREP_AUTOMATION_DIR}}/configure-node.yml
-        --extra-vars "target_hosts={{.HOSTS}}"
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.NODE_PREP_AUTOMATION_DIR}}/tasks/ssh_timeouts.yml"
+          TAGS: "restore"
 
   #--------------------------------------------------------------------------
   # Infrastructure internals
   #--------------------------------------------------------------------------
-  deploy-opnsense:
+  opnsense:deploy:
     desc: Deploy OPNsense VM on Management KVM
     internal: true
     cmds:
-      - task: configure-opnsense
-      - task: copy-opnsense-config
-      - task: deploy-opnsense-vm
-
-  configure-opnsense:
-    desc: Generate OPNsense Configuration
-    internal: true
-    cmds:
-      - > 
-        ansible-playbook
-        -i {{.WORK_DIR}}/inventory.yml
-        {{.BASEKIT_AUTOMATION_DIR}}/configure-opnsense.yml
-        --extra-vars "target_hosts=localhost"
-
-  copy-opnsense-config:
-    desc: Copy OPNsense Config to Management KVM
-    internal: true
-    requires:
-      vars: [HOSTS]
-    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.OPNSENSE_AUTOMATION_DIR}}/tasks/main.yml"
       - >
-        ansible-playbook
-        -i {{.WORK_DIR}}/inventory.yml
-        {{.BASEKIT_AUTOMATION_DIR}}/copy-opnsense-config.yml
-        --extra-vars "target_hosts={{.HOSTS}}"
+        ssh
+        -o StrictHostKeyChecking=no
+        -o UserKnownHostsFile=/dev/null
+        {{.SSH_USER}}@{{.MGMT_HOST}}
+        'bash -s' < {{.OPNSENSE_AUTOMATION_DIR}}/scripts/deploy_opnsense.sh
 
-  deploy-opnsense-vm:
-    desc: Deploy OPNsense VM
-    internal: true
-    vars:
-      SSH_USER:
-        sh: yq '.ssh.user' {{env "OLM_WORK_DIR"}}/deployment.yml
-      MGMT_HOST:
-        sh: yq '.infrastructure.mgmt_kvm.wan_ip' {{env "OLM_WORK_DIR"}}/deployment.yml
-    cmds:
-      - ssh -t -o StrictHostKeyChecking=no -i {{env "ONBOARDER_CACHE_DIR"}}/rancher_ssh_key {{.SSH_USER}}@{{.MGMT_HOST}} 'sudo bash /var/lib/libvirt/config/vm_config/opnsense/install_opnsense.sh'
-
-  deploy-host-vms:
-    desc: Deploy Host VMs on Management KVM
-    internal: true
-    requires:
-      vars: [HOSTS]
-    cmds:
-      - task: deploy-vms
-      - task: configure-vm-partitions
-
-  deploy-vms:
+  vms:libvirt:deploy:
     desc: Deploy VMs on Management KVM
     internal: true
-    requires:
-      vars: [HOSTS]
     cmds:
-      - >
-        ansible-playbook
-        -i {{.WORK_DIR}}/inventory.yml
-        {{.BASEKIT_AUTOMATION_DIR}}/deploy-vms.yml
-        --extra-vars "target_hosts={{.HOSTS}}"
-          
-
-  configure-vm-partitions:
-    desc: Configure VM Disk Partitions
-    internal: true
-    cmds:
-      - >
-        ansible-playbook
-        -i {{.WORK_DIR}}/inventory.yml
-        {{.BASEKIT_AUTOMATION_DIR}}/configure-vm-partitions.yml
-        --extra-vars "target_hosts=clusters" 
+      - task: _ansible-playbook 
+        vars:
+          PLAYBOOK: "{{.BASEKIT_AUTOMATION_DIR}}/tasks/deploy-vms.yml"
 
   #--------------------------------------------------------------------------
   # MCM internals
   #--------------------------------------------------------------------------
-  prep-onboarder-container:
+  onboarder:prep:
     desc: "Prepare Onboarder container environment based on Customer Success recommendations"
     internal: true
     cmds:
-      - >
-        ansible-playbook
-        -i {{.WORK_DIR}}/inventory.yml
-        {{.ONBOARDER_AUTOMATION_DIR}}/prep_onboarder_container.yml
-        --extra-vars "target_hosts=localhost"
+      - ansible-playbook -i {{.INVENTORY}} {{.ONBOARDER_AUTOMATION_DIR}}/tasks/prep_onboarder_container.yml
 
-  deploy-rke2-cluster:
-    desc: Deploy RKE2 Cluster
+  onboarder:rke2:deploy:
+    desc: "Deploy RKE2 on Management Cluster nodes"
     internal: true
+    dir: /docker-workspace
     cmds:
-      - cd /docker-workspace && make ansible-deploy-rke2-cluster ENVIRONMENT=install
+      - make ansible-deploy-rke2-cluster ENVIRONMENT=install
+      - make bootstrap-container-images-run ENVIRONMENT=install
 
-  bootstrap-container-images:
-    desc: Bootstrap Container Images
-    internal: true
-    cmds:
-      - cd /docker-workspace && make bootstrap-container-images-run ENVIRONMENT=install
-
-  deploy-harbor:
+  onboarder:harbor:deploy:
     desc: Deploy Harbor Registry
     internal: true
+    dir: /docker-workspace
     cmds:
-      - cd /docker-workspace && make helmfile-install HELMFILE_CHART=harbor ENVIRONMENT=install
+      - make helmfile-install HELMFILE_CHART=harbor ENVIRONMENT=install
+      - make load-darksite-bundles ENVIRONMENT=install
 
-  load-darksite-bundles:
-    desc: Load Darksite Bundles
-    internal: true
-    cmds:
-      - cd /docker-workspace && make load-darksite-bundles ENVIRONMENT=install
-
-  deploy-rancher:
+  onboarder:rancher:deploy:
     desc: Deploy Rancher
     internal: true
+    dir: /docker-workspace
     cmds:
-      - cd /docker-workspace && make helmfile-install HELMFILE_CHART=rancher ENVIRONMENT=install
+      - make helmfile-install HELMFILE_CHART=rancher ENVIRONMENT=install
+      - make terraform-rancher-bootstrap-apply ENVIRONMENT=install
 
-  terraform-rancher:
-    desc: Bootstrap Rancher with Terraform
-    internal: true
-    cmds:
-      - cd /docker-workspace && make terraform-rancher-bootstrap-apply ENVIRONMENT=install
-
-  deploy-gitea:
+  onboarder:gitea:deploy:
     desc: Deploy Gitea
     internal: true
+    dir: /docker-workspace
     cmds:
-      - cd /docker-workspace && make install-gitea ENVIRONMENT=install
+      - make install-gitea ENVIRONMENT=install
 
-  deploy-argocd:
+  onboarder:argocd:deploy:
     desc: Deploy ArgoCD
     internal: true
+    dir: /docker-workspace
     cmds:
-      - cd /docker-workspace && make install-argocd ENVIRONMENT=install
+      - make install-argocd ENVIRONMENT=install
 
   #--------------------------------------------------------------------------
   # Cluster internals
@@ -374,22 +282,18 @@ tasks:
     requires:
       vars: [CLUSTER_TYPE]
     cmds:
-      - >
-        ansible-playbook
-        -i {{.WORK_DIR}}/inventory.yml 
-        {{.CLUSTERS_AUTOMATION_DIR}}/deploy_downstream_cluster.yml
-        --extra-vars "cluster_type={{.CLUSTER_TYPE}}"
-
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/deploy_downstream_cluster.yml"
+          CLUSTER_TYPE: "{{.CLUSTER_TYPE}}"
 
   deploy-post-osdc:
     desc: "Post-OSDC deployment tasks"
     internal: true
     cmds:
-      - >
-        ansible-playbook
-        -i {{.WORK_DIR}}/inventory.yml
-        {{.CLUSTERS_AUTOMATION_DIR}}/post-osdc.yml
-        --extra-vars "target_hosts=localhost"
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/post-osdc.yml"
           
   get-kubeconfig:
     desc: "Retrieve kubeconfig file"
@@ -397,24 +301,53 @@ tasks:
     requires:
       vars: [CLUSTER_TYPE]
     cmds:
-      - >
-        ansible-playbook
-        -i {{.WORK_DIR}}/inventory.yml
-        {{.CLUSTERS_AUTOMATION_DIR}}/get_kubeconfig.yml
-        --extra-vars "target_hosts=localhost"
-        --extra-vars "cluster_type={{.CLUSTER_TYPE}}"
-          
-
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/get_kubeconfig.yml"
+          CLUSTER_TYPE: "{{.CLUSTER_TYPE}}"
+        
   destroy-cluster:
     desc: "Destroy Cluster (MCM, OSMS, OSDC)"
     internal: true
     requires:
       vars: [HOSTS]
     cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/destroy_cluster.yml"
+          destroy_hosts: "{{.HOSTS}}"
+
+#=============================================================================
+# Internal Tasks (Utility/Helper Tasks)
+#=============================================================================
+  _ensure-generated:
+    internal: true
+    cmds:
       - >
         ansible-playbook
-        -i {{.WORK_DIR}}/inventory.yml
-        {{.CLUSTERS_AUTOMATION_DIR}}/destroy_cluster.yml
-        --extra-vars "target_hosts=localhost"
-        --extra-vars "destroy_hosts={{.HOSTS}}" 
-          
+        -i localhost
+        -c local
+        {{.LIFECYCLE_AUTOMATION_DIR}}/tasks/generate_ansible.yml
+        --extra-vars "config_path={{.DEPLOYMENT_FILE}}"
+        --extra-vars "out_dir={{.ENV_DIR}}/generated"
+        --extra-vars "templates_dir={{.LIFECYCLE_AUTOMATION_DIR}}/templates"
+    status:
+      - test -f {{.INVENTORY}}
+      - test -d {{.GENERATED_DIR}}/host_vars
+      - test -d {{.GENERATED_DIR}}/group_vars
+
+  _ansible-playbook:
+    internal: true
+    deps: 
+      - _ensure-generated
+      - nodeprep:ssh-timeout:relax
+    requires:
+      vars: [PLAYBOOK]
+    vars:
+      LIMIT: '{{.LIMIT | default ""}}'
+    cmds:
+      - >
+        ansible-playbook
+        -i {{.INVENTORY}}
+        {{.PLAYBOOK}}
+        {{if .LIMIT}} --limit "{{.LIMIT}}" {{end}}

@@ -88,3 +88,55 @@
     name: "/tmp/rke2-selinux.rpm"
     state: present
     disable_gpg_check: true
+
+
+#=============================================================================
+# Bootstrap SSH Key to Target Hosts
+#=============================================================================
+
+- name: Set SSH bootstrap vars
+  set_fact:
+    target_user: "{{ ansible_user }}"
+    cache_dir: "{{ lookup('env', 'ONBOARDER_CACHE_DIR') }}"
+    ssh_pubkey_path: "{{ lookup('env', 'ONBOARDER_CACHE_DIR') }}/rancher_ssh_key.pub"
+
+- name: Validate that ssh_pubkey_path exists (on localhost)
+  stat:
+    path: "{{ ssh_pubkey_path }}"
+  delegate_to: localhost
+  run_once: true
+  register: pub_stat
+  changed_when: false
+
+- name: Fail if ssh_pubkey_path does not exist
+  fail:
+    msg: "Public key file not found at {{ ssh_pubkey_path }}"
+  when: not pub_stat.stat.exists
+  delegate_to: localhost
+  run_once: true
+
+- name: Read public key content (from localhost)
+  slurp:
+    src: "{{ ssh_pubkey_path }}"
+  delegate_to: localhost
+  run_once: true
+  register: pubkey_content
+
+- name: Ensure ~/.ssh directory exists on target
+  file:
+    path: "/home/{{ target_user }}/.ssh"
+    state: directory
+    mode: '0700'
+    owner: "{{ target_user }}"
+    group: "{{ target_user }}"
+  become: true
+
+- name: Add public key to authorized_keys
+  authorized_key:
+    user: "{{ target_user }}"
+    state: present
+    key: "{{ pubkey_content.content | b64decode | trim }}"
+  become: true
+
+- name: Test connectivity after key is installed
+  ping:
