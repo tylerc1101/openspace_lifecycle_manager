@@ -1,25 +1,31 @@
 version: '3'
 
+vars:
+  DEPLOYMENT_FILE: deployment.yml
+
 includes:
-  main:
+  automation-file:
     taskfile: ./automation/Taskfile.yml
     internal: true
     vars:
       ENV_DIR: '{{.TASKFILE_DIR}}'
-      DEPLOYMENT_FILE: '{{.ENV_DIR}}/deployment.yml'
-      GENERATED_DIR: '{{.ENV_DIR}}/generated'
-      INVENTORY: '{{.GENERATED_DIR}}/inventory.ini'
+      DEPLOYMENT_FILE: '{{.ENV_DIR}}/{{.DEPLOYMENT_FILE}}'
+      QUARTER: '{{.QUARTER}}'
+
+  custom:
+    taskfile: ./custom/Taskfile.yml
+    optional: true
 
 tasks:
   init:
     desc: "Generate + validate from deployment.yml"
     cmds:
-      - task: main:init
+      - task: automation-file:init
 
   validate:
     desc: "Validate deployment configuration for completeness and correctness"
     cmds:
-      - task: main:validate
+      - task: automation-file:validate
 
   #--------------------------------------------------------------------------
   # Full Stack Deployments
@@ -27,16 +33,37 @@ tasks:
   basekit:deploy:
     desc: "Deploy base infrastructure (VMs, networking, OPNsense)"
     cmds:
-      - task: main:init
-      - task: main:run-nodeprep
+      - task: automation-file:nodeprep:ssh-timeout:relax
+      - task: init
+      - task: nodeprep:run
         vars: 
           HOSTS: primary_management_host
       - task: opnsense:deploy
-      - task: mcm-vm:deploy
+      - task: mcm:vm:deploy
       - task: osms-vm:deploy
       - task: mcm:deploy
       - task: osms:deploy
       - task: osdc:deploy
+      - task: automation-file:nodeprep:ssh-timeout:restore
+
+  #--------------------------------------------------------------------------
+  # NodePrep Lifecycle Workflows
+  #--------------------------------------------------------------------------
+  nodeprep:run:
+    desc: "Run node preparation, prompting for HOSTS if not provided"
+    vars:
+      HOSTS:
+        sh: |
+          if [ -n "{{.HOSTS}}" ]; then
+            echo "{{.HOSTS}}"
+          else
+            read -p "Enter HOSTS value: " value
+            echo "$value"
+          fi
+    cmds:
+      - task: automation-file:nodeprep:run
+        vars:
+          HOSTS: "{{.HOSTS}}"
 
   #--------------------------------------------------------------------------
   # MCM Lifecycle Workflows
@@ -46,32 +73,27 @@ tasks:
     cmds:
       - task: nodeprep:run
         vars:
-          HOSTS: management_cluster
-      - task: onboarder:prep
-      - task: onboarder:rke2:deploy
-      - task: onboarder:harbor:deploy
-      - task: onboarder:rancher:deploy
-      - task: onboarder:gitea:deploy
-      - task: onboarder:argocd:deploy
+          HOSTS: role_mcm
+      - task: automation-file:onboarder:deploy
 
-  #cluster:mcm:destroy:
+  #mcm:destroy:
   #  desc: "Destroy Management Cluster"
   #  cmds:
   #    - task: destroy-cluster
   #      vars:
-  #        HOSTS: management_cluster
+  #        HOSTS: role_mcm
 
   mcm:vm:deploy:
     desc: "Deploy Management Cluster VMs on Management KVM"
     vars:
-      HOSTS: management_cluster
+      HOSTS: role_mcm
     cmds:
-      - task: vms:libvirt:deploy
+      - task: automation-file:vms:libvirt:deploy
 
-  #vm:mcm:destroy:
+  #mcm:vm:destroy:
   #  desc: "Destroy Management Cluster VMs on Management KVM"
   #  vars:
-  #    HOSTS: management_cluster
+  #    HOSTS: role_mcm
   #  cmds:
   #    - task: vms:libvirt:destroy
 
@@ -90,29 +112,29 @@ tasks:
     cmds:
       - task: nodeprep:run
         vars:
-          HOSTS: openspace_management_system
+          HOSTS: role_osms
       - task: deploy-downstream-cluster
         vars:
           CLUSTER_TYPE: osms
 
-  #cluster:osms:destroy:
+  #osms:destroy:
   #  desc: "Destroy OpenSpace Management System cluster"
   #  cmds:
   #    - task: destroy-cluster
   #      vars:
-  #        HOSTS: openspace_management_system
+  #        HOSTS: role_osms
 
   osms:vm:deploy:
     desc: "Deploy OpenSpace Management System VMs on Management KVM"
     vars:
-      HOSTS: openspace_management_system
+      HOSTS: role_osms
     cmds:
       - task: vms:libvirt:deploy
 
-  #vm:osms:destroy:
+  #osms:vm:destroy:
   #  desc: "Destroy OpenSpace Management System VMs on Management KVM"
   #  vars:
-  #    HOSTS: openspace_management_system
+  #    HOSTS: role_osms
   #  cmds:
   #    - task: vms:libvirt:destroy
 
@@ -131,20 +153,20 @@ tasks:
     cmds:
       - task: run-node-prep
         vars:
-          HOSTS: openspace_datapath_cluster
+          HOSTS: role_osdc
       - task: deploy-downstream-cluster
         vars:
           CLUSTER_TYPE: osdc
       - task: deploy-post-osdc
         vars:
-          HOSTS: openspace_datapath_cluster
+          HOSTS: role_osdc
 
-  #cluster:osdc:destroy:
+  #osdc:destroy:
   #  desc: "Destroy OpenSpace Data Cluster"
   #  cmds:
   #    - task: destroy-cluster
   #      vars:
-  #        HOSTS: openspace_datapath_cluster
+  #        HOSTS: role_osdc
 
   osdc:kubeconfig:get:
     desc: "Retrieve OSDC kubeconfig file"
@@ -152,3 +174,41 @@ tasks:
       - task: get-kubeconfig
         vars:
           CLUSTER_TYPE: osdc
+
+  #--------------------------------------------------------------------------
+  # Cluster Lifecycle Workflows
+  #--------------------------------------------------------------------------
+  cluster:deploy:
+    desc: "Deploy any downstream cluster"
+    vars:
+      CLUSTER_TYPE:
+        sh: |
+          if [ -n "{{.CLUSTER_TYPE}}" ]; then
+            echo "{{.CLUSTER_TYPE}}"
+          else
+            read -p "Enter CLUSTER_TYPE value: " value
+            echo "$value"
+          fi
+    cmds:
+      - task: automation-file:clusters:deploy
+
+  #--------------------------------------------------------------------------
+  # OpnSense Lifecycle Workflows
+  #--------------------------------------------------------------------------
+  opnsense:deploy:
+    desc: Deploy OPNsense VM on Management KVM
+    cmds:
+      - task: automation-file:opnsense:deploy
+
+  #--------------------------------------------------------------------------
+  # Updates Workflows
+  #--------------------------------------------------------------------------
+  update:lifecycle:
+    desc: "Update the OpenSpace LifeCycle Manager to latest version"
+    cmds:
+      - task: automation-file:update:lifecycle
+
+  update:patch:system:
+    desc: "Update vulnerability findings to the latest for the quarter"
+    cmds:
+      - task: automation-file:update:lifecycle

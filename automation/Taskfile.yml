@@ -1,0 +1,230 @@
+version: '3'
+
+vars:
+  ENV_DIR: '{{.ENV_DIR}}'
+  DEPLOYMENT_FILE: '{{.DEPLOYMENT_FILE}}'
+  GENERATED_DIR: '{{.ENV_DIR}}/generated'
+  INVENTORY: '{{.GENERATED_DIR}}/inventory.ini'
+
+includes:
+  quarterly-updates:
+    taskfile: '{{.ENV_DIR}}/images/updates/{{.QUARTER}}/Taskfile.yml'
+    optional: true
+    vars:
+      ENV_DIR: '{{.ENV_DIR}}'
+      QUARTER: '{{.QUARTER}}'
+
+tasks:
+  init:
+    desc: "Generate + validate from deployment.yml"
+    cmds:
+      - task: _ensure-generated
+      #- task: validate
+      - task: nodeprep:ssh-timeout:relax
+
+  validate:
+    desc: "Validate deployment configuration for completeness and correctness"
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "./lifecycle-manager/tasks/validate.yml"
+
+  #--------------------------------------------------------------------------
+  # Node preparation internals
+  #--------------------------------------------------------------------------
+  nodeprep:run:
+    desc: "Prepare target nodes (networking, nodeprep, ssh keys)"
+    requires:
+      vars: [HOSTS]
+    vars:
+      HOSTS: "{{.HOSTS}}"
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "./node_prep/tasks/main.yml"
+          LIMIT: "{{.HOSTS}}"
+
+  nodeprep:ssh-timeout:relax:
+    desc: "Relax SSH timeout settings for Ansible runs"
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "./node_prep/tasks/ssh_timeouts.yml"
+          TAGS: "relax"
+
+  nodeprep:ssh-timeout:restore:
+    desc: "Restore SSH timeout settings for Ansible runs"
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "./node_prep/tasks/ssh_timeouts.yml"
+          TAGS: "restore"
+
+  #--------------------------------------------------------------------------
+  # Infrastructure internals
+  #--------------------------------------------------------------------------
+  opnsense:deploy:
+    desc: Deploy OPNsense VM on Management KVM
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "./opnsense/tasks/main.yml"
+      - >
+        ssh
+        -o StrictHostKeyChecking=no
+        -o UserKnownHostsFile=/dev/null
+        {{.SSH_USER}}@{{.MGMT_HOST}}
+        'bash -s' < ./opnsense/scripts/deploy_opnsense.sh
+
+  vms:libvirt:deploy:
+    desc: Deploy VMs on Management KVM
+    cmds:
+      - task: _ansible-playbook 
+        vars:
+          PLAYBOOK: "./vm/tasks/deploy-vms.yml"
+
+  #--------------------------------------------------------------------------
+  # MCM internals
+  #--------------------------------------------------------------------------
+  onboarder:deploy:
+    desc: "Prepare Onboarder container environment based on Customer Success recommendations"
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: ./onboarder/tasks/deploy_onboarder
+      - task: onboarder:rke2:deploy
+      - task: onboarder:harbor:deploy
+      - task: onboarder:rancher:deploy
+      - task: onboarder:gitea:deploy
+      - task: onboarder:argocd:deploy
+
+  onboarder:rke2:deploy:
+    desc: Deploy RKE2 on Management Cluster nodes
+    cmds:
+      - docker exec -w /docker-workspace onboarder make ansible-deploy-rke2-cluster ENVIRONMENT=install
+      - docker exec -w /docker-workspace onboarder make bootstrap-container-images-run ENVIRONMENT=install
+
+  onboarder:harbor:deploy:
+    desc: Deploy Harbor Registry
+    cmds:
+      - docker exec -w /docker-workspace onboarder make helmfile-install HELMFILE_CHART=harbor ENVIRONMENT=install
+      - docker exec -w /docker-workspace onboarder make load-darksite-bundles ENVIRONMENT=install
+
+  onboarder:rancher:deploy:
+    desc: Deploy Rancher
+    cmds:
+      - docker exec -w /docker-workspace onboarder make helmfile-install HELMFILE_CHART=rancher ENVIRONMENT=install
+      - docker exec -w /docker-workspace onboarder make terraform-rancher-bootstrap-apply ENVIRONMENT=install
+
+  onboarder:gitea:deploy:
+    desc: Deploy Gitea
+    cmds:
+      - docker exec -w /docker-workspace onboarder make install-gitea ENVIRONMENT=install
+
+  onboarder:argocd:deploy:
+    desc: Deploy ArgoCD
+    cmds:
+      - docker exec -w /docker-workspace onboarder make install-argocd ENVIRONMENT=install
+
+  #--------------------------------------------------------------------------
+  # Cluster internals
+  #--------------------------------------------------------------------------
+  cluster:deploy:
+    desc: Deploy Downstream Cluster (OSMS or OSDC)
+    requires:
+      vars: [CLUSTER_TYPE]
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/deploy_downstream_cluster.yml"
+          CLUSTER_TYPE: "{{.CLUSTER_TYPE}}"
+
+  deploy-post-osdc:
+    desc: "Post-OSDC deployment tasks"
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/post-osdc.yml"
+          
+  get-kubeconfig:
+    desc: "Retrieve kubeconfig file"
+    requires:
+      vars: [CLUSTER_TYPE]
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/get_kubeconfig.yml"
+          CLUSTER_TYPE: "{{.CLUSTER_TYPE}}"
+        
+  destroy-cluster:
+    desc: "Destroy Cluster (MCM, OSMS, OSDC)"
+    requires:
+      vars: [HOSTS]
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/destroy_cluster.yml"
+          destroy_hosts: "{{.HOSTS}}"
+
+#=============================================================================
+# Internal Tasks (Utility/Helper Tasks)
+#=============================================================================
+  _ensure-generated:
+    cmds:
+      - >
+        ansible-playbook
+        -i localhost
+        -c local
+        {{.LIFECYCLE_AUTOMATION_DIR}}/tasks/generate_ansible.yml
+        --extra-vars "config_path={{.DEPLOYMENT_FILE}}"
+        --extra-vars "out_dir={{.ENV_DIR}}/generated"
+        --extra-vars "templates_dir={{.LIFECYCLE_AUTOMATION_DIR}}/templates"
+    status:
+      - test -f {{.INVENTORY}}
+      - test -d {{.GENERATED_DIR}}/host_vars
+      - test -d {{.GENERATED_DIR}}/group_vars
+
+  _ansible-playbook:
+    deps: 
+      - _ensure-generated
+      - _ansible-vault-passfile
+    requires:
+      vars: [PLAYBOOK]
+    vars:
+      LIMIT: '{{.LIMIT | default ""}}'
+    cmds:
+      - >
+        ANSIBLE_CONFIG=/opt/openspace/automation/ansible.cfg
+        ansible-playbook
+        -i {{.INVENTORY}}
+        {{.PLAYBOOK}}
+        --vault-password-file {{.VAULT_PASSFILE}}
+        {{if .LIMIT}} --limit "{{.LIMIT}}" {{end}}
+
+  _ansible-vault-passfile:
+    internal: true
+    desc: Prompt for Ansible Vault password once and store in a per-run temp file
+    cmds:
+      - |
+        set -euo pipefail
+  
+        PASSFILE="{{.TASK_TEMP_DIR}}/ansible_vault_pass"
+  
+        # If already created in this run, don't prompt again
+        if [ -s "$PASSFILE" ]; then
+          exit 0
+        fi
+
+        mkdir -p "{{.TASK_TEMP_DIR}}"
+        umask 077
+
+        printf "Ansible Vault password: " >&2
+        stty -echo
+        read -r VAULT_PASS
+        stty echo
+        printf "\n" >&2
+
+        printf "%s\n" "$VAULT_PASS" > "$PASSFILE"
+        unset VAULT_PASS
+
+        chmod 600 "$PASSFILE"
