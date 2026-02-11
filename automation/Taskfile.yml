@@ -5,6 +5,7 @@ vars:
   DEPLOYMENT_FILE: '{{.DEPLOYMENT_FILE}}'
   GENERATED_DIR: '{{.ENV_DIR}}/generated'
   INVENTORY: '{{.GENERATED_DIR}}/inventory.ini'
+  LIFECYCLE_AUTOMATION_DIR: '{{.TASKFILE_DIR}}/lifecycle-manager'
 
 includes:
   quarterly-updates:
@@ -20,7 +21,7 @@ tasks:
     cmds:
       - task: _ensure-generated
       #- task: validate
-      - task: nodeprep:ssh-timeout:relax
+      #- task: nodeprep:ssh-timeout:relax
 
   validate:
     desc: "Validate deployment configuration for completeness and correctness"
@@ -173,7 +174,7 @@ tasks:
     cmds:
       - >
         ansible-playbook
-        -i localhost
+        -i localhost,
         -c local
         {{.LIFECYCLE_AUTOMATION_DIR}}/tasks/generate_ansible.yml
         --extra-vars "config_path={{.DEPLOYMENT_FILE}}"

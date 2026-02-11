@@ -1,2 +1,9 @@
 .archive/
 ideas.txt
+
+# Ignore everything in env
+/env/*
+
+# But do NOT ignore sample directory
+!/env/sample/
+!/env/sample/**

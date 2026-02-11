@@ -1,15 +1,12 @@
 version: '3'
 
-vars:
-  DEPLOYMENT_FILE: deployment.yml
-
 includes:
   automation-file:
     taskfile: ./automation/Taskfile.yml
     internal: true
     vars:
-      ENV_DIR: '{{.TASKFILE_DIR}}'
-      DEPLOYMENT_FILE: '{{.ENV_DIR}}/{{.DEPLOYMENT_FILE}}'
+      ENV_DIR: '{{.ROOT_DIR}}/config'
+      DEPLOYMENT_FILE: '{{.ROOT_DIR}}/config/deployment.yml'
       QUARTER: '{{.QUARTER}}'
 
   custom:
