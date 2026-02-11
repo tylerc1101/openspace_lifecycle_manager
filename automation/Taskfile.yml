@@ -19,6 +19,9 @@ tasks:
   init:
     desc: "Generate + validate from deployment.yml"
     cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Initialization"
       - task: _ensure-generated
       #- task: validate
       #- task: nodeprep:ssh-timeout:relax
@@ -40,6 +43,9 @@ tasks:
     vars:
       HOSTS: "{{.HOSTS}}"
     cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Node Preparation | HOSTS: {{.HOSTS}}"
       - task: _ansible-playbook
         vars:
           PLAYBOOK: "./node_prep/tasks/main.yml"
@@ -67,6 +73,9 @@ tasks:
   opnsense:deploy:
     desc: Deploy OPNsense VM on Management KVM
     cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy OpnSense"
       - task: _ansible-playbook
         vars:
           PLAYBOOK: "./opnsense/tasks/main.yml"
@@ -90,6 +99,9 @@ tasks:
   onboarder:deploy:
     desc: "Prepare Onboarder container environment based on Customer Success recommendations"
     cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy MCM"
       - task: _ansible-playbook
         vars:
           PLAYBOOK: ./onboarder/tasks/deploy_onboarder
@@ -135,6 +147,9 @@ tasks:
     requires:
       vars: [CLUSTER_TYPE]
     cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy Downstream Cluster ({{.CLUSTER_TYPE}})"
       - task: _ansible-playbook
         vars:
           PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/deploy_downstream_cluster.yml"
@@ -184,6 +199,17 @@ tasks:
       - test -f {{.INVENTORY}}
       - test -d {{.GENERATED_DIR}}/host_vars
       - test -d {{.GENERATED_DIR}}/group_vars
+
+  _banner:
+    internal: true
+    silent: true
+    cmds:
+      - |
+        echo ""
+        echo -e "\033[1;34m===================================================="
+        echo -e "  {{.MESSAGE}}"
+        echo -e "====================================================\033[0m"
+        echo ""
 
   _ansible-playbook:
     deps: 

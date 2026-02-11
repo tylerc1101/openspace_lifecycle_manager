@@ -2,16 +2,12 @@ version: '3'
 
 includes:
   automation-file:
-    taskfile: ./automation/Taskfile.yml
+    taskfile: ../../automation/Taskfile.yml
     internal: true
     vars:
-      ENV_DIR: '{{.ROOT_DIR}}/config'
-      DEPLOYMENT_FILE: '{{.ROOT_DIR}}/config/deployment.yml'
+      ENV_DIR: '{{.ROOT_DIR}}'
+      DEPLOYMENT_FILE: '{{.ROOT_DIR}}/deployment.yml'
       QUARTER: '{{.QUARTER}}'
-
-  custom:
-    taskfile: ./custom/Taskfile.yml
-    optional: true
 
 tasks:
   init:
@@ -48,15 +44,9 @@ tasks:
   #--------------------------------------------------------------------------
   nodeprep:run:
     desc: "Run node preparation, prompting for HOSTS if not provided"
-    vars:
-      HOSTS:
-        sh: |
-          if [ -n "{{.HOSTS}}" ]; then
-            echo "{{.HOSTS}}"
-          else
-            read -p "Enter HOSTS value: " value
-            echo "$value"
-          fi
+    preconditions:
+      - sh: '[ -n "{{.HOSTS}}" ]'
+        msg: "ERROR: HOSTS variable is required. Usage: task nodeprep:run HOSTS=host1,host2"
     cmds:
       - task: automation-file:nodeprep:run
         vars:
@@ -177,15 +167,9 @@ tasks:
   #--------------------------------------------------------------------------
   cluster:deploy:
     desc: "Deploy any downstream cluster"
-    vars:
-      CLUSTER_TYPE:
-        sh: |
-          if [ -n "{{.CLUSTER_TYPE}}" ]; then
-            echo "{{.CLUSTER_TYPE}}"
-          else
-            read -p "Enter CLUSTER_TYPE value: " value
-            echo "$value"
-          fi
+    preconditions:
+      - sh: '[ -n "{{.CLUSTER_TYPE}}" ]'
+        msg: "ERROR: CLUSTER_TYPE variable is required. Usage: task cluster:deploy CLUSTER_TYPE=osms"
     cmds:
       - task: automation-file:clusters:deploy
 
