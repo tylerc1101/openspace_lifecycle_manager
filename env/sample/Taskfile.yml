@@ -10,11 +10,6 @@ includes:
       QUARTER: '{{.QUARTER}}'
 
 tasks:
-  init:
-    desc: "Generate + validate from deployment.yml"
-    cmds:
-      - task: automation-file:init
-
   validate:
     desc: "Validate deployment configuration for completeness and correctness"
     cmds:
@@ -27,16 +22,12 @@ tasks:
     desc: "Deploy base infrastructure (VMs, networking, OPNsense)"
     cmds:
       - task: automation-file:nodeprep:ssh-timeout:relax
-      - task: init
-      - task: nodeprep:run
-        vars: 
-          HOSTS: primary_management_host
       - task: opnsense:deploy
       - task: mcm:vm:deploy
-      - task: osms-vm:deploy
-      - task: mcm:deploy
-      - task: osms:deploy
-      - task: osdc:deploy
+      - task: osms:vm:deploy
+      - task: mcm:cluster:deploy
+      - task: osms:cluster:deploy
+      - task: osdc:cluster:deploy
       - task: automation-file:nodeprep:ssh-timeout:restore
 
   #--------------------------------------------------------------------------
@@ -46,11 +37,21 @@ tasks:
     desc: "Run node preparation, prompting for HOSTS if not provided"
     preconditions:
       - sh: '[ -n "{{.HOSTS}}" ]'
-        msg: "ERROR: HOSTS variable is required. Usage: task nodeprep:run HOSTS=host1,host2"
+        msg: "ERROR: HOSTS variable is required. Usage: task nodeprep:run HOSTS=mcm1,osms-clusters"
     cmds:
       - task: automation-file:nodeprep:run
         vars:
           HOSTS: "{{.HOSTS}}"
+
+  vm:libvirt:deploy:
+    desc: "Deploy VMs on Management KVM, prompting for HOSTS if not provided"
+    preconditions:
+      - sh: '[ -n "{{.VM}}" ]'
+        msg: "ERROR: VM variable is required. Usage: task vm:libvirt:deploy VM=vm1,vm2"
+    cmds:
+      - task: automation-file:vm:libvirt:deploy
+        vars:
+          VM: "{{.VM}}"
 
   #--------------------------------------------------------------------------
   # MCM Lifecycle Workflows
@@ -60,7 +61,7 @@ tasks:
     cmds:
       - task: nodeprep:run
         vars:
-          HOSTS: role_mcm
+          HOSTS: mcm-clusters
       - task: automation-file:onboarder:deploy
 
   #mcm:destroy:
@@ -68,14 +69,16 @@ tasks:
   #  cmds:
   #    - task: destroy-cluster
   #      vars:
-  #        HOSTS: role_mcm
+  #        HOSTS: mcm-clusters
 
   mcm:vm:deploy:
     desc: "Deploy Management Cluster VMs on Management KVM"
     vars:
-      HOSTS: role_mcm
+      HOSTS: mcm-clusters
     cmds:
-      - task: automation-file:vms:libvirt:deploy
+      - task: vm:libvirt:deploy
+        vars:
+          VM: "mcm1"
 
   #mcm:vm:destroy:
   #  desc: "Destroy Management Cluster VMs on Management KVM"
@@ -99,7 +102,7 @@ tasks:
     cmds:
       - task: nodeprep:run
         vars:
-          HOSTS: role_osms
+          HOSTS: osms-clusters
       - task: deploy-downstream-cluster
         vars:
           CLUSTER_TYPE: osms
@@ -114,9 +117,11 @@ tasks:
   osms:vm:deploy:
     desc: "Deploy OpenSpace Management System VMs on Management KVM"
     vars:
-      HOSTS: role_osms
+      HOSTS: osms-clusters
     cmds:
-      - task: vms:libvirt:deploy
+      - task: vm:libvirt:deploy
+        vars:
+          HOSTS: "{{.HOSTS}}"
 
   #osms:vm:destroy:
   #  desc: "Destroy OpenSpace Management System VMs on Management KVM"
@@ -140,13 +145,13 @@ tasks:
     cmds:
       - task: run-node-prep
         vars:
-          HOSTS: role_osdc
+          HOSTS: osdc-clusters
       - task: deploy-downstream-cluster
         vars:
           CLUSTER_TYPE: osdc
       - task: deploy-post-osdc
         vars:
-          HOSTS: role_osdc
+          HOSTS: osdc-clusters
 
   #osdc:destroy:
   #  desc: "Destroy OpenSpace Data Cluster"

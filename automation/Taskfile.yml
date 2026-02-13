@@ -6,6 +6,8 @@ vars:
   GENERATED_DIR: '{{.ENV_DIR}}/generated'
   INVENTORY: '{{.GENERATED_DIR}}/inventory.ini'
   LIFECYCLE_AUTOMATION_DIR: '{{.TASKFILE_DIR}}/lifecycle-manager'
+  NODEPREP_AUTOMATION_DIR: '{{.TASKFILE_DIR}}/node_prep'
+  CLUSTERS_AUTOMATION_DIR: '{{.TASKFILE_DIR}}/clusters'
 
 includes:
   quarterly-updates:
@@ -40,8 +42,6 @@ tasks:
     desc: "Prepare target nodes (networking, nodeprep, ssh keys)"
     requires:
       vars: [HOSTS]
-    vars:
-      HOSTS: "{{.HOSTS}}"
     cmds:
       - task: _banner
         vars:
@@ -86,12 +86,42 @@ tasks:
         {{.SSH_USER}}@{{.MGMT_HOST}}
         'bash -s' < ./opnsense/scripts/deploy_opnsense.sh
 
-  vms:libvirt:deploy:
-    desc: Deploy VMs on Management KVM
+  vm:libvirt:prep:
+    desc: "Install libvirt and dependencies on the VM host, and ensure libvirtd is running"
     cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "./vm/tasks/libvirt-prep.yml"
+  
+  vm:libvirt:deploy:
+    desc: Deploy VMs on Management KVM
+    requires:
+      vars: [VM]
+    deps:
+      - vm:libvirt:prep
+    cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy VMs on Management KVM | VMs: {{.VM}}"
       - task: _ansible-playbook 
         vars:
-          PLAYBOOK: "./vm/tasks/deploy-vms.yml"
+          PLAYBOOK: "./vm/tasks/libvirt-deploy.yml"
+          EXTRA_VARS: "target_vms={{.VM}}"
+
+  vm:libvirt:expand-disk:
+    desc: Expand VM disk partitions and logical volumes
+    requires:
+      vars: [VM]
+    deps:
+      - task: _ansible-ping
+        vars:
+          HOSTS: "{{.VM}}"
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: ./vm/tasks/vm-disk-expand.yml
+          EXTRA_VARS: "target_vms={{.VM}}"
+
 
   #--------------------------------------------------------------------------
   # MCM internals
@@ -211,22 +241,31 @@ tasks:
         echo -e "====================================================\033[0m"
         echo ""
 
+  _ansible-ping:
+    desc: "Test connectivity to target hosts with Ansible ping"
+    requires:
+      vars: [HOSTS]
+    cmds:
+      - ansible -i {{.DEPLOYMENT_FILE}} {{.HOSTS}} -m ping
+
   _ansible-playbook:
-    deps: 
-      - _ensure-generated
-      - _ansible-vault-passfile
+    #deps: 
+    #  - _ensure-generated
+    #  - _ansible-vault-passfile
     requires:
       vars: [PLAYBOOK]
     vars:
       LIMIT: '{{.LIMIT | default ""}}'
+      EXTRA_VARS: '{{.EXTRA_VARS | default ""}}'
     cmds:
       - >
         ANSIBLE_CONFIG=/opt/openspace/automation/ansible.cfg
         ansible-playbook
-        -i {{.INVENTORY}}
+        -i {{.DEPLOYMENT_FILE}}
         {{.PLAYBOOK}}
         --vault-password-file {{.VAULT_PASSFILE}}
         {{if .LIMIT}} --limit "{{.LIMIT}}" {{end}}
+        {{if .EXTRA_VARS}} --extra-vars "{{.EXTRA_VARS}}" {{end}}
 
   _ansible-vault-passfile:
     internal: true

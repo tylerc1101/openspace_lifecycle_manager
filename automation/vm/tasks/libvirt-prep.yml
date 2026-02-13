@@ -1,0 +1,45 @@
+- name: Libvirt host prep
+  hosts: "{{ libvirt_host | default('localhost') }}"
+  become: true
+  gather_facts: false
+
+  tasks:
+    - name: Preflight - check required RPMs are installed (fast)
+      ansible.builtin.shell: rpm -q virt-install cockpit-machines libguestfs libcdio
+      register: rpm_check
+      changed_when: false
+      failed_when: false
+
+    - name: Install required packages only if missing
+      ansible.builtin.yum:
+        name:
+          - "@Development Tools"
+          - "@Virtualization Platform"
+          - "@Container Management"
+          - "@Headless Management"
+          - gcc
+          - openssl-devel
+          - bzip2-devel
+          - libffi-devel
+          - zlib-devel
+          - xz-devel
+          - readline-devel
+          - sqlite-devel
+          - wget
+          - virt-install
+          - cockpit-machines
+          - libcdio
+          - libguestfs
+        state: present
+        disable_gpg_check: yes
+      when: rpm_check.rc != 0
+
+    - name: Ensure services started/enabled (don't fail if unit missing)
+      ansible.builtin.systemd:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop:
+        - libvirtd
+        - cockpit
+      failed_when: false

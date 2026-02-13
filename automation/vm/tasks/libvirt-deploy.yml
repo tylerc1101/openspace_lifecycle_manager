@@ -1,0 +1,163 @@
+---
+- name: Deploy Libvirt VMs on Primary Management Host
+  hosts: "{{ libvirt_host | default('localhost') }}"
+  become: true
+  gather_facts: false
+  
+  vars:
+    target_vm_list: >-
+      {{
+        (target_vms if (target_vms is sequence and target_vms is not string)
+         else (target_vms | default('') | string | split(',')))
+        | map('trim') | reject('equalto','') | list
+      }}
+
+  tasks:
+    - name: Ensure target_vms provided
+      ansible.builtin.assert:
+        that:
+          - target_vm_list | length > 0
+        fail_msg: "No target_vms provided. Example: -e target_vms=mcm1 or -e target_vms=mcm1,osms1"
+
+    - name: Quick readiness check
+      ansible.builtin.shell: |
+        command -v virsh >/dev/null 2>&1 &&
+        command -v virt-install >/dev/null 2>&1 &&
+        systemctl is-active --quiet libvirtd
+      register: ready
+      changed_when: false
+      failed_when: ready.rc != 0
+
+    - name: Get list of existing VMs
+      ansible.builtin.command: virsh list --all --name
+      register: existing_vms
+      changed_when: false
+      failed_when: false
+
+    - name: Deploy requested VMs
+      loop: "{{ target_vm_list }}"
+      loop_control:
+        loop_var: vm_name
+        label: "{{ vm_name }}"
+      vars:
+        hv_vm: "{{ hostvars[vm_name].vm | default({}) }}"
+        vm_ip: "{{ hostvars[vm_name].ansible_host | default('') }}"
+      block:
+        - name: Validate inventory has vm config for {{ vm_name }}
+          ansible.builtin.assert:
+            that:
+              - hv_vm | length > 0
+              - hv_vm.memory_mb is defined
+              - hv_vm.vcpus is defined
+              - hv_vm.disk_gb is defined
+              - hv_vm.backing_store is defined
+              - hv_vm.os_variant is defined
+              - hv_vm.network_bridge is defined
+              - vm_ip | length > 0
+            fail_msg: >-
+              Missing required inventory vars for {{ vm_name }}.
+              Need ansible_host and vm: {memory_mb,vcpus,disk_gb,backing_store,os_variant,network_bridge}
+
+        - name: Check if VM already exists
+          ansible.builtin.set_fact:
+            vm_exists: "{{ vm_name in existing_vms.stdout_lines }}"
+
+        - name: Create VM XML via virt-install (only if missing)
+          ansible.builtin.command:
+            cmd: >
+              virt-install
+              --name {{ vm_name }}
+              --memory {{ hv_vm.memory_mb }}
+              --vcpus {{ hv_vm.vcpus }}
+              --cpu host-passthrough
+              --disk size={{ hv_vm.disk_gb }},backing_store="{{ hv_vm.backing_store }}"
+              --os-variant {{ hv_vm.os_variant }}
+              --network bridge={{ hv_vm.network_bridge }},model=virtio
+              --import
+              --noautoconsole
+              --graphics vnc
+              --boot uefi
+              --print-xml
+          register: vm_xml
+          when: not vm_exists
+
+        - name: Define VM (only if missing)
+          community.libvirt.virt:
+            command: define
+            xml: "{{ vm_xml.stdout }}"
+          when: not vm_exists
+
+        - name: Get VM disk path (vda)
+          ansible.builtin.shell: |
+            virsh domblklist {{ vm_name }} --details | awk '$3=="disk" && $4=="vda" {print $5}'
+          register: vm_disk
+          changed_when: false
+          failed_when: false
+          when: not vm_exists
+
+        - name: Write network config to temp file
+          ansible.builtin.copy:
+            dest: "/tmp/ifcfg-{{ vm_name }}-enp1s0"
+            content: |
+              TYPE=Ethernet
+              BOOTPROTO=static
+              NAME=static-enp1s0
+              DEVICE=enp1s0
+              ONBOOT=yes
+              IPADDR={{ vm_ip }}
+              PREFIX={{ mgmt_cidr_prefix }}
+              GATEWAY={{ mgmt_gateway }}
+              DNS1={{ mgmt_dns_servers[0] }}
+              {% if mgmt_dns_servers | length > 1 %}
+              DNS2={{ mgmt_dns_servers[1] }}
+              {% endif %}
+          when: not vm_exists
+
+        - name: Inject network config into VM disk (do not fail if injection is not possible)
+          ansible.builtin.command:
+            cmd: >
+              virt-copy-in -a {{ vm_disk.stdout }}
+              /tmp/ifcfg-{{ vm_name }}-enp1s0
+              /etc/sysconfig/network-scripts/
+          environment:
+            LIBGUESTFS_BACKEND: direct
+          when:
+            - not vm_exists
+            - vm_disk.stdout | length > 0
+          failed_when: false
+
+        - name: Remove temp network config file
+          ansible.builtin.file:
+            path: "/tmp/ifcfg-{{ vm_name }}-enp1s0"
+            state: absent
+
+        - name: Start VM
+          community.libvirt.virt:
+            name: "{{ vm_name }}"
+            state: running
+            autostart: true
+          when: not vm_exists
+
+        - name: Track newly started VMs
+          ansible.builtin.set_fact:
+            newly_started_vms: "{{ (newly_started_vms | default([])) + [vm_name] }}"
+          when: not vm_exists
+
+    - name: Wait for SSH on newly started VMs
+      ansible.builtin.wait_for:
+        host: "{{ hostvars[item].ansible_host }}"
+        port: 22
+        delay: 120
+        timeout: 900
+      loop: "{{ newly_started_vms | default([]) }}"
+
+    - name: Verify SSH connectivity on newly started VMs
+      ansible.builtin.command: echo "SSH_OK"
+      delegate_to: "{{ item }}"
+      register: ssh_test
+      until: ssh_test.stdout is search("SSH_OK")
+      retries: 30
+      delay: 30
+      changed_when: false
+      loop: "{{ newly_started_vms | default([]) }}"
+    
