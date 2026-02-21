@@ -42,36 +42,43 @@
         name: chronyd
         enabled: yes
         state: started
-    
+
+#=============================================================================
+# Mangement Node Configuration Only
+#=============================================================================
+    - name: Run MCM Node Configuration Tasks
+      include_tasks: mgmt.yml
+      when: "'management' in group_names"
+
 #=============================================================================
 # MCM Node Configuration Only
 #=============================================================================
     - name: Run MCM Node Configuration Tasks
-      include_tasks: mcm-tasks.yml
-      when: "'role_mcm' in group_names"
+      include_tasks: mcm.yml
+      when: "'mcm-clusters' in group_names"
     
 #=============================================================================
 # OSMS Node Configuration Only
 #============================================================================= 
     - name: Run OSMS Node Configuration Tasks
-      include_tasks: osms-tasks.yml
-      when: "'role_osms' in group_names"
+      include_tasks: osms.yml
+      when: "'osms-clusters' in group_names"
 
 #=============================================================================
 # OSDC Node Configuration Only
 #=============================================================================
     - name: Run OSDC Node Configuration Tasks
-      include_tasks: osdc-tasks.yml
-      when: "'role_osdc' in group_names"
+      include_tasks: osdc.yml
+      when: "'osdc-clusters' in group_names"
 
 #=============================================================================
 # Cluster Node Configuration (Run on MCM, OSMS, and OSDC nodes)
 #=============================================================================
     - name: Run Cluster Node Configuration Tasks
       include_tasks: cluster-tasks.yml
-      when:
-        - "'role_mcm' in group_names"
-        - "'role_osms' in group_names"
-        - "'role_osdc' in group_names"
+      when: >
+        "'mcm-clusters' in group_names" or
+        "'osms-clusters' in group_names" or
+        "'osdc-clusters' in group_names"
 
 

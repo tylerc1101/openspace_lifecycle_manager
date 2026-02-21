@@ -1,0 +1,76 @@
+---
+- name: Initialize Lifecycle Management Environment
+  hosts: localhost
+  connection: local
+  become: true
+  tasks:
+    - name: Configure System PATH and Environment Variables
+      template:
+        src: "{{ openspace_directory }}/automation/lifecycle-manager/files/openspace.sh"
+        dest: /etc/profile.d/openspace.sh
+        owner: root
+        group: root
+        mode: "0644"
+
+    - name: Create ENV Directory if it doesn't exist
+      file:
+        path: "{{ openspace_directory }}/env"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0750"
+
+    - name: Create User ENV Directory if it doesn't exist
+      file:
+        path: "{{ openspace_directory }}/env/{{ env_name }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0750"
+    
+    - name: Copy Files Into ENV Directory
+      template:
+        src: "{{ openspace_directory }}/automation/lifecycle-manager/files/{{ item }}"
+        dest: "{{ openspace_directory }}/env/{{ env_name }}/{{ item }}"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0640"
+      loop:
+        - deployment.yml
+        - Taskfile.build.yml
+        - Taskfile.manage.yml
+
+    - name: Create Secrets Directory
+      file:
+        path: "{{ openspace_directory }}/env/{{ env_name }}/secrets"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0750"
+
+    - name: Copy Secrets Files into Secrets Directory
+      template:
+        src: "{{ openspace_directory }}/automation/lifecycle-manager/files/secrets.yml"
+        dest: "{{ openspace_directory }}/env/{{ env_name }}/secrets/secrets.yml"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0600"
+
+    - name: Configure Ansible Configuration File
+      template:
+        src: "{{ openspace_directory }}/automation/lifecycle-manager/files/ansible.cfg"
+        dest: "{{ openspace_directory }}/env/{{ env_name }}/ansible.cfg"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+
+    - name: Configure Shell Completion
+      template:
+        src: "{{ openspace_directory }}/automation/lifecycle-manager/files/{{ item }}"
+        dest: "/etc/bash_completion.d/{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop:
+        - openspace_completion
+        - task_completion

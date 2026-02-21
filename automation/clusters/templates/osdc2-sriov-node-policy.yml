@@ -13,6 +13,6 @@ spec:
     deviceID: "1593"
     vendor: "8086"
     rootDevices:
-    - "0000:3d:00.3"
-    - "0000:99:00.3"
+    - "0000:0d:00.3"
+    - "0000:22:00.2"
   deviceType: netdevice

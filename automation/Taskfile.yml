@@ -9,32 +9,20 @@ vars:
   NODEPREP_AUTOMATION_DIR: '{{.TASKFILE_DIR}}/node_prep'
   CLUSTERS_AUTOMATION_DIR: '{{.TASKFILE_DIR}}/clusters'
 
-includes:
-  quarterly-updates:
-    taskfile: '{{.ENV_DIR}}/images/updates/{{.QUARTER}}/Taskfile.yml'
-    optional: true
-    vars:
-      ENV_DIR: '{{.ENV_DIR}}'
-      QUARTER: '{{.QUARTER}}'
-
 tasks:
   init:
-    desc: "Generate + validate from deployment.yml"
+    desc: "Initialize environment for lifecycle management tasks"
     cmds:
       - task: _banner
         vars:
-          MESSAGE: "🚀 STEP: Initialization"
-      - task: _ensure-generated
-      #- task: validate
-      #- task: nodeprep:ssh-timeout:relax
-
-  validate:
-    desc: "Validate deployment configuration for completeness and correctness"
-    cmds:
-      - task: _ansible-playbook
-        vars:
-          PLAYBOOK: "./lifecycle-manager/tasks/validate.yml"
-
+          MESSAGE: "🚀 STEP: Initialize Lifecycle Management Environment"
+      - sh: |
+          # Install Ansible if missing
+          if ! command -v ansible-playbook >/dev/null 2>&1; then
+            echo "Installing Ansible from local RPMs..."
+            dnf -y install /opt/openspace/images/rpms/ansible*
+          fi
+      - ansible-playbook init.yml
   #--------------------------------------------------------------------------
   # Node preparation internals
   #--------------------------------------------------------------------------
@@ -215,21 +203,6 @@ tasks:
 #=============================================================================
 # Internal Tasks (Utility/Helper Tasks)
 #=============================================================================
-  _ensure-generated:
-    cmds:
-      - >
-        ansible-playbook
-        -i localhost,
-        -c local
-        {{.LIFECYCLE_AUTOMATION_DIR}}/tasks/generate_ansible.yml
-        --extra-vars "config_path={{.DEPLOYMENT_FILE}}"
-        --extra-vars "out_dir={{.ENV_DIR}}/generated"
-        --extra-vars "templates_dir={{.LIFECYCLE_AUTOMATION_DIR}}/templates"
-    status:
-      - test -f {{.INVENTORY}}
-      - test -d {{.GENERATED_DIR}}/host_vars
-      - test -d {{.GENERATED_DIR}}/group_vars
-
   _banner:
     internal: true
     silent: true
@@ -250,7 +223,6 @@ tasks:
 
   _ansible-playbook:
     #deps: 
-    #  - _ensure-generated
     #  - _ansible-vault-passfile
     requires:
       vars: [PLAYBOOK]
