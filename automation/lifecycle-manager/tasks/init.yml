@@ -3,74 +3,134 @@
   hosts: localhost
   connection: local
   become: true
+  gather_facts: false
+
+  vars:
+    env_dir: "{{ openspace_directory }}/env/{{ env_name }}"
+
   tasks:
+    # -------------------------------------------------------------------------
+    # Preflight
+    # -------------------------------------------------------------------------
+    - name: Preflight - ensure required variables are defined
+      assert:
+        that:
+          - env_name is defined
+          - env_name | length > 0
+          - openspace_directory is defined
+          - openspace_directory | length > 0
+          - ansible_user is defined
+          - ansible_user | length > 0
+        fail_msg: >-
+          Missing required vars. Ensure deployment.yml defines:
+          all.vars.env_name, all.vars.openspace_directory, all.vars.ansible_user
+
+    - name: Preflight - ensure OpenSpace root exists
+      stat:
+        path: "{{ openspace_directory }}"
+      register: os_root
+
+    - name: Fail if OpenSpace root missing
+      fail:
+        msg: "OpenSpace directory not found: {{ openspace_directory }}"
+      when: not os_root.stat.exists
+
+    # Source deployment file path (the -i inventory file wrapper used)
+    - name: Determine deployment source file (inventory)
+      set_fact:
+        deployment_src: "{{ ansible_inventory_sources[0] }}"
+
+    # -------------------------------------------------------------------------
+    # Create env directory structure (Ansible owns ALL filesystem state)
+    # -------------------------------------------------------------------------
+    - name: Create environment directory structure
+      file:
+        path: "{{ env_dir }}/{{ item }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0755"
+      loop:
+        - ""
+        - kubeconfig
+        - certs
+        - backups
+        - generated
+
+    # Canonicalize deployment.yml into env
+    - name: Copy deployment.yml into environment directory
+      copy:
+        src: "{{ deployment_src }}"
+        dest: "{{ env_dir }}/deployment.yml"
+        remote_src: true
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+
+    # -------------------------------------------------------------------------
+    # System-wide shell environment
+    # -------------------------------------------------------------------------
     - name: Configure System PATH and Environment Variables
       template:
-        src: "{{ openspace_directory }}/automation/lifecycle-manager/files/openspace.sh"
+        src: "{{ openspace_directory }}/automation/lifecycle-manager/templates/openspace.sh.j2"
         dest: /etc/profile.d/openspace.sh
         owner: root
         group: root
         mode: "0644"
 
-    - name: Create ENV Directory if it doesn't exist
-      file:
-        path: "{{ openspace_directory }}/env"
-        state: directory
-        owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-        mode: "0750"
-
-    - name: Create User ENV Directory if it doesn't exist
-      file:
-        path: "{{ openspace_directory }}/env/{{ env_name }}"
-        state: directory
-        owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-        mode: "0750"
-    
-    - name: Copy Files Into ENV Directory
-      template:
-        src: "{{ openspace_directory }}/automation/lifecycle-manager/files/{{ item }}"
-        dest: "{{ openspace_directory }}/env/{{ env_name }}/{{ item }}"
-        owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-        mode: "0640"
-      loop:
-        - deployment.yml
-        - Taskfile.build.yml
-        - Taskfile.manage.yml
-
-    - name: Create Secrets Directory
-      file:
-        path: "{{ openspace_directory }}/env/{{ env_name }}/secrets"
-        state: directory
-        owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-        mode: "0750"
-
-    - name: Copy Secrets Files into Secrets Directory
-      template:
-        src: "{{ openspace_directory }}/automation/lifecycle-manager/files/secrets.yml"
-        dest: "{{ openspace_directory }}/env/{{ env_name }}/secrets/secrets.yml"
-        owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-        mode: "0600"
-
-    - name: Configure Ansible Configuration File
-      template:
+    # -------------------------------------------------------------------------
+    # Env-local Ansible configuration
+    # -------------------------------------------------------------------------
+    - name: Configure Ansible Configuration File (env-local)
+      copy:
         src: "{{ openspace_directory }}/automation/lifecycle-manager/files/ansible.cfg"
-        dest: "{{ openspace_directory }}/env/{{ env_name }}/ansible.cfg"
+        dest: "{{ env_dir }}/ansible.cfg"
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: "0644"
 
+    # -------------------------------------------------------------------------
+    # Generate env Taskfile.yml (wrapper contract)
+    # -------------------------------------------------------------------------
+    - name: Generate environment Taskfile.yml
+      copy:
+        dest: "{{ env_dir }}/Taskfile.yml"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+        content: |
+          version: '3'
+
+          includes:
+            automation:
+              taskfile: {{ openspace_directory }}/automation/Taskfile.yml
+              vars:
+                ENV_NAME: '{{ env_name }}'
+                ENV_DIR: '{{ env_dir }}'
+                DEPLOYMENT_FILE: '{{ env_dir }}/deployment.yml'
+
+          # Add environment-specific tasks here (this file is generated by init)
+
+    # -------------------------------------------------------------------------
+    # Shell completion
+    # -------------------------------------------------------------------------
     - name: Configure Shell Completion
-      template:
+      copy:
         src: "{{ openspace_directory }}/automation/lifecycle-manager/files/{{ item }}"
         dest: "/etc/bash_completion.d/{{ item }}"
         owner: root
         group: root
         mode: "0644"
       loop:
-        - openspace_completion
         - task_completion
+
+    # Optional marker for troubleshooting / idempotency checks
+    - name: Write initialization marker
+      copy:
+        dest: "{{ env_dir }}/.openspace_initialized"
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: "0644"
+        content: |
+          initialized_at: {{ lookup('pipe','date -Is') }}
+          env_name: {{ env_name }}

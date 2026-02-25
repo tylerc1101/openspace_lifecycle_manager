@@ -1,0 +1,30 @@
+# ============================================================================
+# OpenSpace Environment Taskfile — ${ENV_NAME}
+#
+# This is the entrypoint Taskfile for this environment.
+# It includes the automation Taskfile and injects env-specific variables.
+#
+# Add custom per-environment tasks below the includes block.
+# ============================================================================
+version: '3'
+
+includes:
+  automation:
+    taskfile: ${AUTOMATION_TASKFILE}
+    vars:
+      ENV_NAME: '${ENV_NAME}'
+      ENV_DIR: '${ENV_DIR}'
+      DEPLOYMENT_FILE: '${ENV_DIR}/deployment.yml'
+
+# ---------------------------------------------------------------------------
+# Custom environment tasks
+# ---------------------------------------------------------------------------
+# Add environment-specific tasks here. They won't be overwritten on re-init
+# unless you choose to regenerate.
+#
+# Example:
+#   tasks:
+#     custom:hello:
+#       desc: "Custom task for ${ENV_NAME}"
+#       cmds:
+#         - echo "Hello from ${ENV_NAME}"

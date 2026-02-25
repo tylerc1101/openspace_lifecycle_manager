@@ -4,7 +4,6 @@ vars:
   ENV_DIR: '{{.ENV_DIR}}'
   DEPLOYMENT_FILE: '{{.DEPLOYMENT_FILE}}'
   GENERATED_DIR: '{{.ENV_DIR}}/generated'
-  INVENTORY: '{{.GENERATED_DIR}}/inventory.ini'
   LIFECYCLE_AUTOMATION_DIR: '{{.TASKFILE_DIR}}/lifecycle-manager'
   NODEPREP_AUTOMATION_DIR: '{{.TASKFILE_DIR}}/node_prep'
   CLUSTERS_AUTOMATION_DIR: '{{.TASKFILE_DIR}}/clusters'
@@ -16,13 +15,7 @@ tasks:
       - task: _banner
         vars:
           MESSAGE: "🚀 STEP: Initialize Lifecycle Management Environment"
-      - sh: |
-          # Install Ansible if missing
-          if ! command -v ansible-playbook >/dev/null 2>&1; then
-            echo "Installing Ansible from local RPMs..."
-            dnf -y install /opt/openspace/images/rpms/ansible*
-          fi
-      - ansible-playbook init.yml
+      - ansible-playbook -i {{.DEPLOYMENT_FILE_FROM_WRAPPER}} {{.LIFECYCLE_AUTOMATION_DIR}}/tasks/init.yml
   #--------------------------------------------------------------------------
   # Node preparation internals
   #--------------------------------------------------------------------------
@@ -235,7 +228,6 @@ tasks:
         ansible-playbook
         -i {{.DEPLOYMENT_FILE}}
         {{.PLAYBOOK}}
-        --vault-password-file {{.VAULT_PASSFILE}}
         {{if .LIMIT}} --limit "{{.LIMIT}}" {{end}}
         {{if .EXTRA_VARS}} --extra-vars "{{.EXTRA_VARS}}" {{end}}
 
