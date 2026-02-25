@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import os
+import json
+import re
 import shlex
 import subprocess
 import threading
@@ -116,9 +118,9 @@ def resolve_env_taskfile(name: str) -> Path:
 
 
 def task_list(taskfile: Path) -> list[str]:
-    p = subprocess.run(["task", "-t", str(taskfile), "--list"], capture_output=True, text=True)
-    if p.returncode != 0:
-        raise RuntimeError(p.stderr.strip() or p.stdout.strip() or "task --list failed")
+    # Build from task_descriptions to ensure we only capture real tasks (not headers).
+    return list(task_descriptions(taskfile).keys())
+
 
     names: list[str] = []
     for line in p.stdout.splitlines():
@@ -143,6 +145,39 @@ def task_list(taskfile: Path) -> list[str]:
 def filter_tasks_by_prefix(tasks: Iterable[str], prefix: str) -> list[str]:
     return [t for t in tasks if t.startswith(prefix)]
 
+
+def task_descriptions(taskfile: Path) -> dict[str, str]:
+    p = subprocess.run(["task", "-t", str(taskfile), "--list"], capture_output=True, text=True)
+    if p.returncode != 0:
+        raise RuntimeError(p.stderr.strip() or p.stdout.strip() or "task --list failed")
+
+    descriptions: dict[str, str] = {}
+
+    # Only accept actual task rows. In go-task output these are typically:
+    #   * name: description
+    #   - name: description
+    # This avoids matching header lines like:
+    #   task: Available tasks for this project:
+    pattern = re.compile(r"^\s*[*-]\s+([A-Za-z0-9:_-]+)\s*:\s*(.*)$")
+
+    for line in p.stdout.splitlines():
+        m = pattern.match(line)
+        if not m:
+            continue
+
+        name = m.group(1).strip()
+        desc = m.group(2).strip()
+
+        if name.startswith(f"{TASK_NS}:"):
+            name = name[len(TASK_NS) + 1 :]
+
+        # Extra safety: ignore the go-task header if formatting ever changes
+        if name == "task":
+            continue
+
+        descriptions[name] = desc
+
+    return descriptions
 
 def gather_dashboard_data(current_env: str, last_action: str) -> DashboardModel:
     now = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ")
@@ -367,15 +402,104 @@ class OpenSpaceTUI(App):
         self.runner = Runner(self._append_log)
         self._ui_thread_id: int | None = None
         self._env_names: list[str] = []
-        self._admin_stage = "menu"
-        self._admin_options = ["Deploy", "Init / Import", "Validate", "Destroy", "Upgrade", "Repair"]
-        self._admin_index = 0
-        self._admin_deploy_groups = ["Reference architecture", "Cluster"]
-        self._admin_deploy_group_index = 0
-        self._admin_task_prefix = ""
-        self._admin_tasks: list[str] = []
-        self._admin_task_index = 0
+        self._admin_stage = "task_nav"
+        self._admin_task_tree: dict[str, dict] = {}
+        self._admin_task_path: list[str] = []
+        self._admin_task_descriptions: dict[str, str] = {}
+        self._admin_option_keys: list[str] = []
         self._admin_display_options: list[str] = []
+
+    def inventory_json(self, inventory_path: Path) -> dict:
+        p = subprocess.run(["ansible-inventory", "-i", str(inventory_path), "--list"], capture_output=True, text=True)
+        if p.returncode != 0:
+            detail = p.stderr.strip() or p.stdout.strip() or "ansible-inventory failed"
+            raise RuntimeError(detail)
+        try:
+            return json.loads(p.stdout)
+        except json.JSONDecodeError as ex:
+            raise RuntimeError(f"Failed to parse ansible-inventory JSON: {ex}") from ex
+
+    def list_child_groups(self, inv: dict, parent_group: str) -> list[str]:
+        parent = inv.get(parent_group)
+        if not isinstance(parent, dict):
+            return []
+        children = parent.get("children", [])
+        if not isinstance(children, list):
+            return []
+        return [child for child in children if isinstance(child, str)]
+
+    def group_host_count(self, inv: dict, group: str) -> int:
+        grp = inv.get(group)
+        if not isinstance(grp, dict):
+            return 0
+        hosts = grp.get("hosts", [])
+        if isinstance(hosts, list):
+            return len(hosts)
+        if isinstance(hosts, dict):
+            return len(hosts.keys())
+        return 0
+
+    def _build_task_tree(self, tasks: list[str]) -> dict[str, dict]:
+        tree: dict[str, dict] = {}
+        for task in tasks:
+            parts = [part for part in task.split(":") if part]
+            if not parts:
+                continue
+            node = tree
+            for part in parts:
+                node = node.setdefault(part, {})
+            node["__task__"] = task
+        return tree
+
+    def _child_keys(self, node: dict[str, dict]) -> list[str]:
+        return sorted([k for k in node.keys() if k != "__task__"])
+
+    def _node_for_path(self, path: list[str]) -> Optional[dict[str, dict]]:
+        node: dict[str, dict] = self._admin_task_tree
+        for part in path:
+            nxt = node.get(part)
+            if not isinstance(nxt, dict):
+                return None
+            node = nxt
+        return node
+
+    def _load_admin_task_browser(self) -> None:
+        self._admin_task_tree = {}
+        self._admin_task_path = []
+        self._admin_task_descriptions = {}
+
+        if not self._ensure_env_selected():
+            self._admin_option_keys = []
+            self._admin_display_options = []
+            return
+
+        try:
+            tf = resolve_env_taskfile(self.current_env)
+            tasks = task_list(tf)
+            self._admin_task_tree = self._build_task_tree(tasks)
+            self._admin_task_descriptions = task_descriptions(tf)
+        except Exception as ex:
+            self._append_log(f"[error] {ex}")
+            self._admin_task_tree = {}
+            self._admin_task_descriptions = {}
+
+        self._refresh_admin_options()
+
+    def _format_option_label(self, node: dict[str, dict], key: str) -> str:
+        child = node.get(key)
+        if not isinstance(child, dict):
+            return key
+        task_name = child.get("__task__")
+        if isinstance(task_name, str) and not self._child_keys(child):
+            desc = self._admin_task_descriptions.get(task_name, "")
+            return f"{key} — {desc}" if desc else key
+        return key
+
+    def _refresh_admin_options(self) -> None:
+        node = self._node_for_path(self._admin_task_path)
+        node = node or {}
+        self._admin_option_keys = self._child_keys(node)
+        self._admin_display_options = [self._format_option_label(node, key) for key in self._admin_option_keys]
 
     def compose(self) -> ComposeResult:
         yield Static("", id="topbar")
@@ -504,15 +628,13 @@ class OpenSpaceTUI(App):
         self.query_one("#dashboard_text", Static).update("\n".join(lines))
 
     def _render_admin_pane(self) -> None:
-        self._set_left_title("Admin")
+        breadcrumb = " / ".join(self._admin_task_path)
+        self._set_left_title(f"Admin{(' / ' + breadcrumb) if breadcrumb else ''}")
 
-        if self._admin_stage == "menu":
-            self._admin_display_options = list(self._admin_options)
-        elif self._admin_stage == "deploy_group":
-            self._admin_display_options = list(self._admin_deploy_groups)
-        elif self._admin_stage == "deploy_task":
-            self._admin_display_options = list(self._admin_tasks)
+        if self._admin_stage == "task_nav":
+            self._refresh_admin_options()
         else:
+            self._admin_option_keys = []
             self._admin_display_options = []
 
         self._refresh_admin_list()
@@ -575,7 +697,8 @@ class OpenSpaceTUI(App):
 
     def action_admin(self) -> None:
         self.current_pane = "admin"
-        self._admin_stage = "menu"
+        self._admin_stage = "task_nav"
+        self._load_admin_task_browser()
         self._render_left_pane()
 
     def action_admin_next(self) -> None:
@@ -602,85 +725,60 @@ class OpenSpaceTUI(App):
         if self.current_pane != "admin":
             return
 
+        if self._admin_stage != "task_nav":
+            return
+
         lv = self.query_one("#admin_list", ListView)
         selected_index = lv.index if lv.index is not None else 0
-
-        if self._admin_stage == "menu":
-            if not self._admin_options:
-                return
-            self._admin_index = max(0, min(selected_index, len(self._admin_options) - 1))
-            selected = self._admin_options[self._admin_index]
-            if selected == "Deploy":
-                self._admin_stage = "deploy_group"
-                self._admin_deploy_group_index = 0
-                self._render_left_pane()
-            elif selected == "Init / Import":
-                self.action_init_import()
-            elif selected == "Validate":
-                self.action_validate()
-            else:
-                self._append_log(f"[info] {selected} action is a placeholder for now.")
-                self._refresh_dashboard(f"admin: {selected.lower()}")
+        node = self._node_for_path(self._admin_task_path)
+        if node is None:
+            self._append_log("[error] Invalid admin task path.")
             return
 
-        if self._admin_stage == "deploy_group":
-            if not self._admin_deploy_groups:
-                return
-            self._admin_deploy_group_index = max(0, min(selected_index, len(self._admin_deploy_groups) - 1))
-            group = self._admin_deploy_groups[self._admin_deploy_group_index]
-            self._admin_task_prefix = "ref:" if group.startswith("Reference") else "cluster:"
-            if not self._ensure_env_selected():
-                self._admin_stage = "menu"
-                self._render_left_pane()
-                return
-            try:
-                tf = resolve_env_taskfile(self.current_env)
-                tasks = task_list(tf)
-                self._admin_tasks = [
-                    t.replace(self._admin_task_prefix, "", 1)
-                    for t in filter_tasks_by_prefix(tasks, self._admin_task_prefix)
-                ]
-            except Exception as ex:
-                self._append_log(f"[error] {ex}")
-                self._admin_stage = "menu"
-                self._render_left_pane()
-                return
+        options = self._admin_option_keys
+        if not options:
+            self._append_log("[warn] No task options available.")
+            return
 
-            if not self._admin_tasks:
-                self._append_log(f"No {self._admin_task_prefix}* tasks found.")
-                self._admin_stage = "menu"
-                self._render_left_pane()
-                return
+        selected_index = max(0, min(selected_index, len(options) - 1))
+        selected = options[selected_index]
+        next_path = [*self._admin_task_path, selected]
+        next_node = self._node_for_path(next_path)
+        if next_node is None:
+            self._append_log(f"[error] Invalid task selection: {selected}")
+            return
 
-            self._admin_stage = "deploy_task"
-            self._admin_task_index = 0
+        children = self._child_keys(next_node)
+        task_name = next_node.get("__task__")
+
+        if children:
+            self._admin_task_path = next_path
             self._render_left_pane()
             return
 
-        if self._admin_stage == "deploy_task":
-            if self.runner.busy:
-                self._append_log("[warn] Busy running a command.")
-                return
-            if not self._ensure_env_selected() or not self._admin_tasks:
-                return
+        if not isinstance(task_name, str):
+            self._append_log("[error] Selected task is not runnable.")
+            return
 
-            self._admin_task_index = max(0, min(selected_index, len(self._admin_tasks) - 1))
-            chosen = self._admin_tasks[self._admin_task_index]
-            tf = resolve_env_taskfile(self.current_env)
-            full = f"{TASK_NS}:{self._admin_task_prefix}{chosen}"
-            self.runner.run(
-                RunSpec(f"Deploy: {full}", ["task", "-t", str(tf), full]),
-                on_done=lambda _rc: self._refresh_dashboard(f"deploy {self._admin_task_prefix}{chosen}"),
-            )
-            self._admin_stage = "menu"
-            self._render_left_pane()
+        if self.runner.busy:
+            self._append_log("[warn] Busy running a command.")
+            return
+        if not self._ensure_env_selected():
+            return
+
+        tf = resolve_env_taskfile(self.current_env)
+        full = f"{TASK_NS}:{task_name}"
+        self.runner.run(
+            RunSpec(f"Admin task: {full}", ["task", "-t", str(tf), full]),
+            on_done=lambda _rc: self._refresh_dashboard(f"admin task {task_name}"),
+        )
+        self._admin_task_path = []
+        self._render_left_pane()
 
     def action_back(self) -> None:
         if self.current_pane == "admin":
-            if self._admin_stage == "deploy_task":
-                self._admin_stage = "deploy_group"
-            elif self._admin_stage == "deploy_group":
-                self._admin_stage = "menu"
+            if self._admin_stage == "task_nav" and self._admin_task_path:
+                self._admin_task_path.pop()
             else:
                 self.current_pane = "status"
             self._render_left_pane()
@@ -688,7 +786,7 @@ class OpenSpaceTUI(App):
 
         if self.current_pane == "init":
             self.current_pane = "admin"
-            self._admin_stage = "menu"
+            self._admin_stage = "task_nav"
             self._render_left_pane()
             return
 
@@ -849,8 +947,13 @@ class OpenSpaceTUI(App):
 
     def action_deploy(self) -> None:
         self.current_pane = "admin"
-        self._admin_stage = "deploy_group"
-        self._admin_deploy_group_index = 0
+        self._admin_stage = "task_nav"
+        if not self._admin_task_tree:
+            self._load_admin_task_browser()
+        if "deploy" in self._admin_task_tree:
+            self._admin_task_path = ["deploy"]
+        else:
+            self._admin_task_path = []
         self._render_left_pane()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:

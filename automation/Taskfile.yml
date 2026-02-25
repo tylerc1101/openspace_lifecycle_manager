@@ -16,10 +16,68 @@ tasks:
         vars:
           MESSAGE: "🚀 STEP: Initialize Lifecycle Management Environment"
       - ansible-playbook -i {{.DEPLOYMENT_FILE_FROM_WRAPPER}} {{.LIFECYCLE_AUTOMATION_DIR}}/tasks/init.yml
+  
   #--------------------------------------------------------------------------
-  # Node preparation internals
+  # Admin -> Deploy -> Reference architecture (TUI filters ref:)
   #--------------------------------------------------------------------------
-  nodeprep:run:
+  deploy:reference_architecture:basekit:
+    desc: "Deploy Reference Architecture BaseKit components (OPNsense, VMs, MCM)"
+    cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy Reference Architecture BaseKit (OPNsense, VMs, MCM)"
+      - task: opnsense:deploy
+      - task: vm:libvirt:deploy
+      - task: onboarder:deploy
+
+  #--------------------------------------------------------------------------
+  # Admin -> Deploy -> Cluster (TUI filters cluster:)
+  #--------------------------------------------------------------------------
+  deploy:cluster:
+    desc: Deploy Downstream Cluster (OSMS or OSDC)
+    requires:
+      vars: [CLUSTER_TYPE]
+    cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy Downstream Cluster ({{.CLUSTER_TYPE}})"
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/deploy_downstream_cluster.yml"
+          LIMIT: "localhost,{{.CLUSTER_GROUP}}"
+          EXTRA_VARS: "cluster_group={{.CLUSTER_GROUP}}"
+
+  deploy:cluster:post-osdc:
+    desc: "Post-OSDC deployment tasks"
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/post-osdc.yml"
+          
+  cluster:get:kubeconfig:
+    desc: "Retrieve kubeconfig file"
+    requires:
+      vars: [CLUSTER_TYPE]
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/get_kubeconfig.yml"
+          CLUSTER_TYPE: "{{.CLUSTER_TYPE}}"
+        
+  cluster:destroy:
+    desc: "Destroy Cluster (MCM, OSMS, OSDC)"
+    requires:
+      vars: [HOSTS]
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/destroy_cluster.yml"
+          destroy_hosts: "{{.HOSTS}}"
+  
+  #--------------------------------------------------------------------------
+  # Admin -> Deploy -> Node Preparation (TUI filters nodeprep:)
+  #--------------------------------------------------------------------------
+  deploy:nodeprep:
     desc: "Prepare target nodes (networking, nodeprep, ssh keys)"
     requires:
       vars: [HOSTS]
@@ -32,7 +90,7 @@ tasks:
           PLAYBOOK: "./node_prep/tasks/main.yml"
           LIMIT: "{{.HOSTS}}"
 
-  nodeprep:ssh-timeout:relax:
+  deploy:nodeprep:ssh-timeout:
     desc: "Relax SSH timeout settings for Ansible runs"
     cmds:
       - task: _ansible-playbook
@@ -40,7 +98,7 @@ tasks:
           PLAYBOOK: "./node_prep/tasks/ssh_timeouts.yml"
           TAGS: "relax"
 
-  nodeprep:ssh-timeout:restore:
+  nodeprep:destroy:ssh-timeout:
     desc: "Restore SSH timeout settings for Ansible runs"
     cmds:
       - task: _ansible-playbook
@@ -49,10 +107,49 @@ tasks:
           TAGS: "restore"
 
   #--------------------------------------------------------------------------
-  # Infrastructure internals
+  # Admin -> Deploy -> Libvirt Vms (TUI filters libvirt:)
   #--------------------------------------------------------------------------
-  opnsense:deploy:
+  deploy:libvirt:service:
+    desc: "Install libvirt and dependencies on the VM host, and ensure libvirtd is running"
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "./vm/tasks/libvirt-prep.yml"
+  
+  deploy:libvirt:vm:
+    desc: Deploy VMs on Management KVM
+    requires:
+      vars: [VM]
+    deps:
+      - libvirt:prep
+    cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy VMs on Management KVM | VMs: {{.VM}}"
+      - task: _ansible-playbook 
+        vars:
+          PLAYBOOK: "./vm/tasks/libvirt-deploy.yml"
+          EXTRA_VARS: "target_vms={{.VM}}"
+
+  libvirt:expand-disk:
+    desc: Expand VM disk partitions and logical volumes
+    internal: true
+    requires:
+      vars: [VM]
+    deps:
+      - task: _ansible-ping
+        vars:
+          HOSTS: "{{.VM}}"
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: ./vm/tasks/vm-disk-expand.yml
+          EXTRA_VARS: "target_vms={{.VM}}"
+
+  deploy:libvirt:opnsense:
     desc: Deploy OPNsense VM on Management KVM
+    deps:
+      - libvirt:prep
     cmds:
       - task: _banner
         vars:
@@ -67,131 +164,56 @@ tasks:
         {{.SSH_USER}}@{{.MGMT_HOST}}
         'bash -s' < ./opnsense/scripts/deploy_opnsense.sh
 
-  vm:libvirt:prep:
-    desc: "Install libvirt and dependencies on the VM host, and ensure libvirtd is running"
-    cmds:
-      - task: _ansible-playbook
-        vars:
-          PLAYBOOK: "./vm/tasks/libvirt-prep.yml"
-  
-  vm:libvirt:deploy:
-    desc: Deploy VMs on Management KVM
-    requires:
-      vars: [VM]
-    deps:
-      - vm:libvirt:prep
-    cmds:
-      - task: _banner
-        vars:
-          MESSAGE: "🚀 STEP: Deploy VMs on Management KVM | VMs: {{.VM}}"
-      - task: _ansible-playbook 
-        vars:
-          PLAYBOOK: "./vm/tasks/libvirt-deploy.yml"
-          EXTRA_VARS: "target_vms={{.VM}}"
-
-  vm:libvirt:expand-disk:
-    desc: Expand VM disk partitions and logical volumes
-    requires:
-      vars: [VM]
-    deps:
-      - task: _ansible-ping
-        vars:
-          HOSTS: "{{.VM}}"
-    cmds:
-      - task: _ansible-playbook
-        vars:
-          PLAYBOOK: ./vm/tasks/vm-disk-expand.yml
-          EXTRA_VARS: "target_vms={{.VM}}"
-
-
   #--------------------------------------------------------------------------
-  # MCM internals
+  # Admin -> Deploy -> Onboarder (TUI filters onboarder:)
   #--------------------------------------------------------------------------
-  onboarder:deploy:
+  deploy:onboarder:
     desc: "Prepare Onboarder container environment based on Customer Success recommendations"
     cmds:
       - task: _banner
         vars:
           MESSAGE: "🚀 STEP: Deploy MCM"
-      - task: _ansible-playbook
-        vars:
-          PLAYBOOK: ./onboarder/tasks/deploy_onboarder
+      - task: onboarder:onboarder-container:deploy
       - task: onboarder:rke2:deploy
       - task: onboarder:harbor:deploy
       - task: onboarder:rancher:deploy
       - task: onboarder:gitea:deploy
       - task: onboarder:argocd:deploy
 
-  onboarder:rke2:deploy:
+  deploy:onboarder:onboarder-container:
+    desc: Deploy Onboarder container
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: ./onboarder/tasks/deploy_onboarder.yml
+
+  deploy:onboarder:rke2:
     desc: Deploy RKE2 on Management Cluster nodes
     cmds:
       - docker exec -w /docker-workspace onboarder make ansible-deploy-rke2-cluster ENVIRONMENT=install
       - docker exec -w /docker-workspace onboarder make bootstrap-container-images-run ENVIRONMENT=install
 
-  onboarder:harbor:deploy:
+  deploy:onboarder:harbor:
     desc: Deploy Harbor Registry
     cmds:
       - docker exec -w /docker-workspace onboarder make helmfile-install HELMFILE_CHART=harbor ENVIRONMENT=install
       - docker exec -w /docker-workspace onboarder make load-darksite-bundles ENVIRONMENT=install
 
-  onboarder:rancher:deploy:
+  deploy:onboarder:rancher:
     desc: Deploy Rancher
     cmds:
       - docker exec -w /docker-workspace onboarder make helmfile-install HELMFILE_CHART=rancher ENVIRONMENT=install
       - docker exec -w /docker-workspace onboarder make terraform-rancher-bootstrap-apply ENVIRONMENT=install
 
-  onboarder:gitea:deploy:
+  deploy:onboarder:gitea:
     desc: Deploy Gitea
     cmds:
       - docker exec -w /docker-workspace onboarder make install-gitea ENVIRONMENT=install
 
-  onboarder:argocd:deploy:
+  deploy:onboarder:argocd:
     desc: Deploy ArgoCD
     cmds:
       - docker exec -w /docker-workspace onboarder make install-argocd ENVIRONMENT=install
-
-  #--------------------------------------------------------------------------
-  # Cluster internals
-  #--------------------------------------------------------------------------
-  cluster:deploy:
-    desc: Deploy Downstream Cluster (OSMS or OSDC)
-    requires:
-      vars: [CLUSTER_TYPE]
-    cmds:
-      - task: _banner
-        vars:
-          MESSAGE: "🚀 STEP: Deploy Downstream Cluster ({{.CLUSTER_TYPE}})"
-      - task: _ansible-playbook
-        vars:
-          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/deploy_downstream_cluster.yml"
-          CLUSTER_TYPE: "{{.CLUSTER_TYPE}}"
-
-  deploy-post-osdc:
-    desc: "Post-OSDC deployment tasks"
-    cmds:
-      - task: _ansible-playbook
-        vars:
-          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/post-osdc.yml"
-          
-  get-kubeconfig:
-    desc: "Retrieve kubeconfig file"
-    requires:
-      vars: [CLUSTER_TYPE]
-    cmds:
-      - task: _ansible-playbook
-        vars:
-          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/get_kubeconfig.yml"
-          CLUSTER_TYPE: "{{.CLUSTER_TYPE}}"
-        
-  destroy-cluster:
-    desc: "Destroy Cluster (MCM, OSMS, OSDC)"
-    requires:
-      vars: [HOSTS]
-    cmds:
-      - task: _ansible-playbook
-        vars:
-          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/destroy_cluster.yml"
-          destroy_hosts: "{{.HOSTS}}"
 
 #=============================================================================
 # Internal Tasks (Utility/Helper Tasks)
@@ -209,6 +231,7 @@ tasks:
 
   _ansible-ping:
     desc: "Test connectivity to target hosts with Ansible ping"
+    internal: true
     requires:
       vars: [HOSTS]
     cmds:
@@ -217,6 +240,7 @@ tasks:
   _ansible-playbook:
     #deps: 
     #  - _ansible-vault-passfile
+    internal: true
     requires:
       vars: [PLAYBOOK]
     vars:

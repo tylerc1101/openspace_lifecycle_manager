@@ -55,10 +55,11 @@ all:
     # -------------------------------------------------------------------------
     # CLUSTERS
     # -------------------------------------------------------------------------
-    mcm-clusters:
+    clusters:
       children:
         local:
           vars:
+            cluster_type: mcm
             ansible_ssh_private_key_file: rancher_ssh_key
           hosts:
             mcm1:
@@ -72,11 +73,9 @@ all:
                 backing_store: /var/lib/libvirt/config/images/9_5_hardened_image_vm.qcow2
                 os_variant: rhel9.5
                 network_bridge: br-mgmt
-
-    osms-clusters:
-      children:
         openspace-osms:
           vars:
+            cluster_type: osms
             ansible_ssh_private_key_file: osms_ssh_key
           hosts:
             osms1:
@@ -90,11 +89,9 @@ all:
                 backing_store: /var/lib/libvirt/config/images/9_5_hardened_image_vm.qcow2
                 os_variant: rhel9.5
                 network_bridge: br-mgmt
-
-    osdc-clusters:
-      children:
         openspace-osdc:
           vars:
+            cluster_type: osdc
             ansible_ssh_private_key_file: osdc_ssh_key
           hosts:
             osdc1:

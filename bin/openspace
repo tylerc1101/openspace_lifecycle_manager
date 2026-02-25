@@ -1,3 +1,5 @@
 #!/bin/bash
 
-python3 ../automation/openspace_tui.py
+OPENSPACE_ROOT="${OPENSPACE_ROOT:-/opt/openspace}"
+
+python3 "$OPENSPACE_ROOT/automation/openspace_tui.py"
