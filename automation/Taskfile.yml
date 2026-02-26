@@ -20,7 +20,7 @@ tasks:
   #--------------------------------------------------------------------------
   # Admin -> Deploy -> Reference architecture (TUI filters ref:)
   #--------------------------------------------------------------------------
-  deploy:reference_architecture:basekit:
+  Deploy:Deploy_A_Reference_Architecture:Basekit:
     desc: "Deploy Reference Architecture BaseKit components (OPNsense, VMs, MCM)"
     cmds:
       - task: _banner
@@ -33,7 +33,7 @@ tasks:
   #--------------------------------------------------------------------------
   # Admin -> Deploy -> Cluster (TUI filters cluster:)
   #--------------------------------------------------------------------------
-  deploy:cluster:
+  Deploy:Clusters:Deploy_A_Cluster:
     desc: Deploy Downstream Cluster (OSMS or OSDC)
     requires:
       vars: [CLUSTER_TYPE]
@@ -47,14 +47,14 @@ tasks:
           LIMIT: "localhost,{{.CLUSTER_GROUP}}"
           EXTRA_VARS: "cluster_group={{.CLUSTER_GROUP}}"
 
-  deploy:cluster:post-osdc:
+  Deploy:Clusters:Post_OSDC_Tasks:
     desc: "Post-OSDC deployment tasks"
     cmds:
       - task: _ansible-playbook
         vars:
           PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/post-osdc.yml"
           
-  cluster:get:kubeconfig:
+  Get:Kubeconfig:
     desc: "Retrieve kubeconfig file"
     requires:
       vars: [CLUSTER_TYPE]
@@ -64,7 +64,7 @@ tasks:
           PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/get_kubeconfig.yml"
           CLUSTER_TYPE: "{{.CLUSTER_TYPE}}"
         
-  cluster:destroy:
+  Destroy:Clusters:Destroy_A_Cluster:
     desc: "Destroy Cluster (MCM, OSMS, OSDC)"
     requires:
       vars: [HOSTS]
@@ -77,7 +77,7 @@ tasks:
   #--------------------------------------------------------------------------
   # Admin -> Deploy -> Node Preparation (TUI filters nodeprep:)
   #--------------------------------------------------------------------------
-  deploy:nodeprep:
+  Deploy:Node_Preparation:Prep_A_Node:
     desc: "Prepare target nodes (networking, nodeprep, ssh keys)"
     requires:
       vars: [HOSTS]
@@ -90,7 +90,7 @@ tasks:
           PLAYBOOK: "./node_prep/tasks/main.yml"
           LIMIT: "{{.HOSTS}}"
 
-  deploy:nodeprep:ssh-timeout:
+  Deploy:Node_Preparation:Relax_SSH_Timeout:
     desc: "Relax SSH timeout settings for Ansible runs"
     cmds:
       - task: _ansible-playbook
@@ -98,7 +98,7 @@ tasks:
           PLAYBOOK: "./node_prep/tasks/ssh_timeouts.yml"
           TAGS: "relax"
 
-  nodeprep:destroy:ssh-timeout:
+  Destroy:Node_Preparation:Restore_SSH_Timeout:
     desc: "Restore SSH timeout settings for Ansible runs"
     cmds:
       - task: _ansible-playbook
@@ -109,14 +109,14 @@ tasks:
   #--------------------------------------------------------------------------
   # Admin -> Deploy -> Libvirt Vms (TUI filters libvirt:)
   #--------------------------------------------------------------------------
-  deploy:libvirt:service:
+  Deploy:Libvirt:Deploy_Libvirt_Services:
     desc: "Install libvirt and dependencies on the VM host, and ensure libvirtd is running"
     cmds:
       - task: _ansible-playbook
         vars:
           PLAYBOOK: "./vm/tasks/libvirt-prep.yml"
   
-  deploy:libvirt:vm:
+  Deploy:Libvirt:Deploy_A_Libvirt_VM:
     desc: Deploy VMs on Management KVM
     requires:
       vars: [VM]
@@ -131,7 +131,7 @@ tasks:
           PLAYBOOK: "./vm/tasks/libvirt-deploy.yml"
           EXTRA_VARS: "target_vms={{.VM}}"
 
-  libvirt:expand-disk:
+  Deploy:Libvirt:Expand_VM_Disk:
     desc: Expand VM disk partitions and logical volumes
     internal: true
     requires:
@@ -146,7 +146,7 @@ tasks:
           PLAYBOOK: ./vm/tasks/vm-disk-expand.yml
           EXTRA_VARS: "target_vms={{.VM}}"
 
-  deploy:libvirt:opnsense:
+  Deploy:Libvirt:Deploy_Libvirt_OPNsense:
     desc: Deploy OPNsense VM on Management KVM
     deps:
       - libvirt:prep
@@ -167,7 +167,7 @@ tasks:
   #--------------------------------------------------------------------------
   # Admin -> Deploy -> Onboarder (TUI filters onboarder:)
   #--------------------------------------------------------------------------
-  deploy:onboarder:
+  Deploy:Onboarder:Deploy_Onboarder_Container:
     desc: "Prepare Onboarder container environment based on Customer Success recommendations"
     cmds:
       - task: _banner
@@ -180,7 +180,7 @@ tasks:
       - task: onboarder:gitea:deploy
       - task: onboarder:argocd:deploy
 
-  deploy:onboarder:onboarder-container:
+  Deploy:Onboarder:onboarder-container:
     desc: Deploy Onboarder container
     cmds:
       - task: _ansible-playbook

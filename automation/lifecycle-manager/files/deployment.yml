@@ -65,7 +65,7 @@ all:
             mcm1:
               ansible_host: 192.168.2.8   # connect_via: management
               description: MCM node
-              host_type: vm
+              host_type: libvirt_vm
               vm:
                 memory_mb: 16384
                 vcpus: 8
@@ -81,7 +81,7 @@ all:
             osms1:
               ansible_host: 192.168.2.9   # connect_via: management
               description: OSMS node
-              host_type: vm
+              host_type: libvirt_vm
               vm:
                 memory_mb: 32768
                 vcpus: 16
