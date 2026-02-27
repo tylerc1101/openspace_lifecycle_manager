@@ -1,0 +1,75 @@
+version: '3'
+
+vars:
+  TASKS_DIR: "{{.ROOT_DIR}}/tasks"
+
+includes:
+  LifeCycle-Manager:
+    taskfile: ../lifecycle-manager/Taskfile.lcm.yml
+    internal: true
+
+tasks:
+  Deploy_Onboarder_Container:
+    desc: "Deploy Onboarder container to MGMT host"
+    cmds:
+      - task: LifeCycle-Manager:banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy Onboarder container to MGMT host"
+      - task: LifeCycle-Manager:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/deploy_onboarder_container.yml"
+  
+  Run_All_Makes:
+    desc: "Run all Make commands in the Onboarder Container to deploy the MCM cluster"
+    cmds:
+      - task: LifeCycle-Manager:banner
+        vars:
+          MESSAGE: "🚀 STEP: Run all Make commands in Onboarder container to deploy MCM cluster"
+      - task: Deploy_RKE2
+      - task: Deploy_Harbor
+      - task: Deploy_Rancher
+      - task: Deploy_Gitea
+      - task: Deploy_ArgoCD
+
+  Deploy_RKE2:
+    desc: "Deploy RKE2 Kubernetes cluster using Onboarder container"
+    cmds:
+      - task: LifeCycle-Manager:banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy RKE2 Kubernetes cluster using Onboarder container"
+      - task: Make_Ansible_Deploy_RKE2_Cluster
+      - task: Make_Bootstrap_Container_Images_Run
+  
+  Deploy_Harbor:
+    desc: "Deploy Harbor container registry using Onboarder container"
+    cmds:
+      - task: LifeCycle-Manager:banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy Harbor container registry using Onboarder container"
+      - task: Make_Helmfile_Install_Harbor
+      - task: Make_Load_Darksite_Bundles
+
+  Deploy_Rancher:
+    desc: "Deploy Rancher management platform using Onboarder container"
+    cmds:
+      - task: LifeCycle-Manager:banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy Rancher management platform using Onboarder container"
+      - task: Make_Helmfile_Install_Rancher
+      - task: Make_Terraform_Rancher_Bootstrap_Apply
+
+  Deploy_Gitea:
+    desc: "Deploy Gitea Git server using Onboarder container"
+    cmds:
+      - task: LifeCycle-Manager:banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy Gitea Git server using Onboarder container"
+      - task: Make_Install_Gitea
+
+  Deploy_ArgoCD:
+    desc: "Deploy ArgoCD GitOps platform using Onboarder container"
+    cmds:
+      - task: LifeCycle-Manager:banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy ArgoCD GitOps platform using Onboarder container"
+      - task: Make_Install_ArgoCD

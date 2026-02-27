@@ -33,7 +33,20 @@ tasks:
   #--------------------------------------------------------------------------
   # Admin -> Deploy -> Cluster (TUI filters cluster:)
   #--------------------------------------------------------------------------
-  Deploy:Clusters:Deploy_A_Cluster:
+  Deploy:Clusters:Deploy_Management_Cluster:
+    desc: "Prepare Onboarder container environment based on Customer Success recommendations"
+    cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy MCM"
+      - task: onboarder:onboarder-container:deploy
+      - task: onboarder:rke2:deploy
+      - task: onboarder:harbor:deploy
+      - task: onboarder:rancher:deploy
+      - task: onboarder:gitea:deploy
+      - task: onboarder:argocd:deploy
+
+  Deploy:Clusters:Deploy_Downstream_Cluster:
     desc: Deploy Downstream Cluster (OSMS or OSDC)
     requires:
       vars: [CLUSTER_TYPE]

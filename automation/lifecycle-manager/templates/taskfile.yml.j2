@@ -9,12 +9,23 @@
 version: '3'
 
 includes:
-  automation:
-    taskfile: ${AUTOMATION_TASKFILE}
-    vars:
-      ENV_NAME: '${ENV_NAME}'
-      ENV_DIR: '${ENV_DIR}'
-      DEPLOYMENT_FILE: '${ENV_DIR}/deployment.yml'
+  LifeCycle-Manager:
+    taskfile: ${AUTOMATION_DIR}/lifecycle-manager/Taskfile.lcm.yml
+  Reference_Architecture_Deployments:
+    taskfile: ${AUTOMATION_DIR}/reference_architecture/Taskfile.ref_arch.yml
+  Clusters:
+    taskfile: ${AUTOMATION_DIR}/clusters/Taskfile.clusters.yml
+  Onboarder:
+    taskfile: ${AUTOMATION_DIR}/onboarder/Taskfile.onboarder.yml
+  Servers:
+    taskfile: ${AUTOMATION_DIR}/servers/Taskfile.servers.yml
+  Libvirt:
+    taskfile: ${AUTOMATION_DIR}/libvirt/Taskfile.libvirt.yml
+  Cockpit:
+    taskfile: ${AUTOMATION_DIR}/cockpit/Taskfile.libvirt.yml
+  Custom:
+    taskfile: ${.ROOT_DIR}/custom.Taskfile.yml
+  
 
 # ---------------------------------------------------------------------------
 # Custom environment tasks

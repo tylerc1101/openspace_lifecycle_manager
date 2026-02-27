@@ -1,0 +1,42 @@
+version: '3'
+
+vars:
+  TASKS_DIR: "{{.ROOT_DIR}}/tasks"
+
+includes:
+  LifeCycle-Manager:
+    taskfile: ../lifecycle-manager/Taskfile.lcm.yml
+    internal: true
+
+tasks:
+  Deploy_Libvirt_Services:
+    desc: "Install libvirt and dependencies on the VM host, and ensure libvirtd is running"
+    cmds:
+      - task: LifeCycle-Manager:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/libvirt-prep.yml"
+
+  Deploy_RHEL9_VM:
+    desc: "Deploy RHEL 9 VM using virt-install and a Kickstart file"
+    requires:
+      vars: [VM_NAME]
+    cmds:
+      - task: LifeCycle-Manager:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/deploy-rhel9-vm.yml"
+
+  Expand_VM_Disk:
+    desc: "Expand the disk of an existing VM to a new specified size"
+    requires:
+      vars: [VM_NAME]
+    cmds:
+      - task: LifeCycle-Manager:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/expand-vm-disk.yml"
+
+  Deploy_OPNSense_VM:
+    desc: "Deploy OPNsense VM using virt-install and an unattended installation method"
+    cmds:
+      - task: LifeCycle-Manager:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/deploy-opnsense-vm.yml"
