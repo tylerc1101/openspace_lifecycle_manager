@@ -1,0 +1,297 @@
+version: '3'
+
+vars:
+  ENV_DIR: '{{.ENV_DIR}}'
+  DEPLOYMENT_FILE: '{{.DEPLOYMENT_FILE}}'
+  GENERATED_DIR: '{{.ENV_DIR}}/generated'
+  LIFECYCLE_AUTOMATION_DIR: '{{.TASKFILE_DIR}}/lifecycle-manager'
+  NODEPREP_AUTOMATION_DIR: '{{.TASKFILE_DIR}}/node_prep'
+  CLUSTERS_AUTOMATION_DIR: '{{.TASKFILE_DIR}}/clusters'
+
+tasks:
+  init:
+    desc: "Initialize environment for lifecycle management tasks"
+    cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Initialize Lifecycle Management Environment"
+      - ansible-playbook -i {{.DEPLOYMENT_FILE_FROM_WRAPPER}} {{.LIFECYCLE_AUTOMATION_DIR}}/tasks/init.yml
+  
+  #--------------------------------------------------------------------------
+  # Admin -> Deploy -> Reference architecture (TUI filters ref:)
+  #--------------------------------------------------------------------------
+  Deploy:Deploy_A_Reference_Architecture:Basekit:
+    desc: "Deploy Reference Architecture BaseKit components (OPNsense, VMs, MCM)"
+    cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy Reference Architecture BaseKit (OPNsense, VMs, MCM)"
+      - task: opnsense:deploy
+      - task: vm:libvirt:deploy
+      - task: onboarder:deploy
+
+  #--------------------------------------------------------------------------
+  # Admin -> Deploy -> Cluster (TUI filters cluster:)
+  #--------------------------------------------------------------------------
+  Deploy:Clusters:Deploy_Management_Cluster:
+    desc: "Prepare Onboarder container environment based on Customer Success recommendations"
+    cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy MCM"
+      - task: onboarder:onboarder-container:deploy
+      - task: onboarder:rke2:deploy
+      - task: onboarder:harbor:deploy
+      - task: onboarder:rancher:deploy
+      - task: onboarder:gitea:deploy
+      - task: onboarder:argocd:deploy
+
+  Deploy:Clusters:Deploy_Downstream_Cluster:
+    desc: Deploy Downstream Cluster (OSMS or OSDC)
+    requires:
+      vars: [CLUSTER_TYPE]
+    cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy Downstream Cluster ({{.CLUSTER_TYPE}})"
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/deploy_downstream_cluster.yml"
+          LIMIT: "localhost,{{.CLUSTER_GROUP}}"
+          EXTRA_VARS: "cluster_group={{.CLUSTER_GROUP}}"
+
+  Deploy:Clusters:Post_OSDC_Tasks:
+    desc: "Post-OSDC deployment tasks"
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/post-osdc.yml"
+          
+  Get:Kubeconfig:
+    desc: "Retrieve kubeconfig file"
+    requires:
+      vars: [CLUSTER_TYPE]
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/get_kubeconfig.yml"
+          CLUSTER_TYPE: "{{.CLUSTER_TYPE}}"
+        
+  Destroy:Clusters:Destroy_A_Cluster:
+    desc: "Destroy Cluster (MCM, OSMS, OSDC)"
+    requires:
+      vars: [HOSTS]
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "{{.CLUSTERS_AUTOMATION_DIR}}/destroy_cluster.yml"
+          destroy_hosts: "{{.HOSTS}}"
+  
+  #--------------------------------------------------------------------------
+  # Admin -> Deploy -> Node Preparation (TUI filters nodeprep:)
+  #--------------------------------------------------------------------------
+  Deploy:Node_Preparation:Prep_A_Node:
+    desc: "Prepare target nodes (networking, nodeprep, ssh keys)"
+    requires:
+      vars: [HOSTS]
+    cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Node Preparation | HOSTS: {{.HOSTS}}"
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "./node_prep/tasks/main.yml"
+          LIMIT: "{{.HOSTS}}"
+
+  Deploy:Node_Preparation:Relax_SSH_Timeout:
+    desc: "Relax SSH timeout settings for Ansible runs"
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "./node_prep/tasks/ssh_timeouts.yml"
+          TAGS: "relax"
+
+  Destroy:Node_Preparation:Restore_SSH_Timeout:
+    desc: "Restore SSH timeout settings for Ansible runs"
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "./node_prep/tasks/ssh_timeouts.yml"
+          TAGS: "restore"
+
+  #--------------------------------------------------------------------------
+  # Admin -> Deploy -> Libvirt Vms (TUI filters libvirt:)
+  #--------------------------------------------------------------------------
+  Deploy:Libvirt:Deploy_Libvirt_Services:
+    desc: "Install libvirt and dependencies on the VM host, and ensure libvirtd is running"
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "./vm/tasks/libvirt-prep.yml"
+  
+  Deploy:Libvirt:Deploy_A_Libvirt_VM:
+    desc: Deploy VMs on Management KVM
+    requires:
+      vars: [VM]
+    deps:
+      - libvirt:prep
+    cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy VMs on Management KVM | VMs: {{.VM}}"
+      - task: _ansible-playbook 
+        vars:
+          PLAYBOOK: "./vm/tasks/libvirt-deploy.yml"
+          EXTRA_VARS: "target_vms={{.VM}}"
+
+  Deploy:Libvirt:Expand_VM_Disk:
+    desc: Expand VM disk partitions and logical volumes
+    internal: true
+    requires:
+      vars: [VM]
+    deps:
+      - task: _ansible-ping
+        vars:
+          HOSTS: "{{.VM}}"
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: ./vm/tasks/vm-disk-expand.yml
+          EXTRA_VARS: "target_vms={{.VM}}"
+
+  Deploy:Libvirt:Deploy_Libvirt_OPNsense:
+    desc: Deploy OPNsense VM on Management KVM
+    deps:
+      - libvirt:prep
+    cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy OpnSense"
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: "./opnsense/tasks/main.yml"
+      - >
+        ssh
+        -o StrictHostKeyChecking=no
+        -o UserKnownHostsFile=/dev/null
+        {{.SSH_USER}}@{{.MGMT_HOST}}
+        'bash -s' < ./opnsense/scripts/deploy_opnsense.sh
+
+  #--------------------------------------------------------------------------
+  # Admin -> Deploy -> Onboarder (TUI filters onboarder:)
+  #--------------------------------------------------------------------------
+  Deploy:Onboarder:Deploy_Onboarder_Container:
+    desc: "Prepare Onboarder container environment based on Customer Success recommendations"
+    cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy MCM"
+      - task: onboarder:onboarder-container:deploy
+      - task: onboarder:rke2:deploy
+      - task: onboarder:harbor:deploy
+      - task: onboarder:rancher:deploy
+      - task: onboarder:gitea:deploy
+      - task: onboarder:argocd:deploy
+
+  Deploy:Onboarder:onboarder-container:
+    desc: Deploy Onboarder container
+    cmds:
+      - task: _ansible-playbook
+        vars:
+          PLAYBOOK: ./onboarder/tasks/deploy_onboarder.yml
+
+  deploy:onboarder:rke2:
+    desc: Deploy RKE2 on Management Cluster nodes
+    cmds:
+      - docker exec -w /docker-workspace onboarder make ansible-deploy-rke2-cluster ENVIRONMENT=install
+      - docker exec -w /docker-workspace onboarder make bootstrap-container-images-run ENVIRONMENT=install
+
+  deploy:onboarder:harbor:
+    desc: Deploy Harbor Registry
+    cmds:
+      - docker exec -w /docker-workspace onboarder make helmfile-install HELMFILE_CHART=harbor ENVIRONMENT=install
+      - docker exec -w /docker-workspace onboarder make load-darksite-bundles ENVIRONMENT=install
+
+  deploy:onboarder:rancher:
+    desc: Deploy Rancher
+    cmds:
+      - docker exec -w /docker-workspace onboarder make helmfile-install HELMFILE_CHART=rancher ENVIRONMENT=install
+      - docker exec -w /docker-workspace onboarder make terraform-rancher-bootstrap-apply ENVIRONMENT=install
+
+  deploy:onboarder:gitea:
+    desc: Deploy Gitea
+    cmds:
+      - docker exec -w /docker-workspace onboarder make install-gitea ENVIRONMENT=install
+
+  deploy:onboarder:argocd:
+    desc: Deploy ArgoCD
+    cmds:
+      - docker exec -w /docker-workspace onboarder make install-argocd ENVIRONMENT=install
+
+#=============================================================================
+# Internal Tasks (Utility/Helper Tasks)
+#=============================================================================
+  _banner:
+    internal: true
+    silent: true
+    cmds:
+      - |
+        echo ""
+        echo -e "\033[1;34m===================================================="
+        echo -e "  {{.MESSAGE}}"
+        echo -e "====================================================\033[0m"
+        echo ""
+
+  _ansible-ping:
+    desc: "Test connectivity to target hosts with Ansible ping"
+    internal: true
+    requires:
+      vars: [HOSTS]
+    cmds:
+      - ansible -i {{.DEPLOYMENT_FILE}} {{.HOSTS}} -m ping
+
+  _ansible-playbook:
+    #deps: 
+    #  - _ansible-vault-passfile
+    internal: true
+    requires:
+      vars: [PLAYBOOK]
+    vars:
+      LIMIT: '{{.LIMIT | default ""}}'
+      EXTRA_VARS: '{{.EXTRA_VARS | default ""}}'
+    cmds:
+      - >
+        ANSIBLE_CONFIG=/opt/openspace/automation/ansible.cfg
+        ansible-playbook
+        -i {{.DEPLOYMENT_FILE}}
+        {{.PLAYBOOK}}
+        {{if .LIMIT}} --limit "{{.LIMIT}}" {{end}}
+        {{if .EXTRA_VARS}} --extra-vars "{{.EXTRA_VARS}}" {{end}}
+
+  _ansible-vault-passfile:
+    internal: true
+    desc: Prompt for Ansible Vault password once and store in a per-run temp file
+    cmds:
+      - |
+        set -euo pipefail
+  
+        PASSFILE="{{.TASK_TEMP_DIR}}/ansible_vault_pass"
+  
+        # If already created in this run, don't prompt again
+        if [ -s "$PASSFILE" ]; then
+          exit 0
+        fi
+
+        mkdir -p "{{.TASK_TEMP_DIR}}"
+        umask 077
+
+        printf "Ansible Vault password: " >&2
+        stty -echo
+        read -r VAULT_PASS
+        stty echo
+        printf "\n" >&2
+
+        printf "%s\n" "$VAULT_PASS" > "$PASSFILE"
+        unset VAULT_PASS
+
+        chmod 600 "$PASSFILE"

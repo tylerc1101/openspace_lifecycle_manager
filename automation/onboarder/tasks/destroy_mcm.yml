@@ -1,0 +1,92 @@
+---
+- name: Remove RKE2 / Rancher system agent and wipe kube storage/logs
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    uninstall_scripts:
+      - /usr/local/bin/rke2-killall.sh
+      - /usr/local/bin/rke2-uninstall.sh
+      - /usr/local/bin/rancher-system-agent-uninstall.sh
+
+    wipe_paths:
+      # specific longhorn CSI plugin path contents
+      - /var/lib/kubelet/plugins/kubernetes.io/csi/driver.longhorn.io
+      # broad wipes
+      - /var/lib/kubelet
+      - /var/lib/calico
+      - /var/lib/longhorn
+      - /var/lib/rancher
+      - /var/lib/iscsi/nodes
+      - /var/lib/iscsi/send_targets
+      - /var/log/pods
+      - /var/log/calico
+      - /var/log/containers
+      - /var/log/containers
+      - /etc/rancher
+      - /opt/cni
+      - /etc/cni
+
+    # Set true if you want the playbook to reboot the node mid-run
+    do_reboot: false
+
+    # Set true if you want the playbook to attempt cleanup twice (pre and post reboot)
+    run_cleanup_twice: false
+
+  tasks:
+    - name: Run uninstall scripts if they exist
+      ansible.builtin.shell: "{{ item }} || true"
+      args:
+        executable: /bin/bash
+      loop: "{{ uninstall_scripts }}"
+      register: uninstall_results
+      changed_when: false
+      failed_when: false
+
+    - name: Show uninstall script output (brief)
+      ansible.builtin.debug:
+        msg:
+          - "Ran: {{ item.item }}"
+          - "rc={{ item.rc }}"
+          - "{{ (item.stdout_lines | default([]))[:20] }}"
+          - "{{ (item.stderr_lines | default([]))[:20] }}"
+      loop: "{{ uninstall_results.results | default([]) }}"
+      when: uninstall_results is defined
+
+    - name: Remove Longhorn CSI driver directory contents (best-effort)
+      # This matches: rm -rf /var/lib/kubelet/plugins/.../driver.longhorn.io/*
+      ansible.builtin.file:
+        path: /var/lib/kubelet/plugins/kubernetes.io/csi/driver.longhorn.io
+        state: absent
+
+    - name: Wipe remaining Kubernetes/Rancher/Longhorn/Calico paths (best-effort)
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop: "{{ wipe_paths }}"
+      failed_when: false
+
+    - name: Reboot node (optional but often required)
+      ansible.builtin.reboot:
+        msg: "Rebooting to clear stuck mounts / RO filesystems after RKE2 removal"
+        reboot_timeout: 1800
+      when: do_reboot | bool
+
+    - name: Optional second cleanup pass after reboot
+      when: run_cleanup_twice | bool
+      block:
+        - name: Run uninstall scripts again if they exist (second pass)
+          ansible.builtin.shell: "{{ item }} || true"
+          args:
+            executable: /bin/bash
+          loop: "{{ uninstall_scripts }}"
+          changed_when: false
+          failed_when: false
+
+        - name: Wipe remaining paths again (second pass)
+          ansible.builtin.file:
+            path: "{{ item }}"
+            state: absent
+          loop: "{{ wipe_paths }}"
+          failed_when: false

@@ -1,0 +1,104 @@
+# OpenSpace LifeCycle Manager - Deployment Configuration (v1)
+---
+all:
+  vars:
+    env_name: GEP1
+    openspace_directory: /opt/openspace
+    openspace_lifecycle_manager: "1.2.0"
+    onboarder: "3.5.0-rc7"
+    osms_tooling: "1.8.x"
+    
+    ansible_user: kratos
+    ansible_password: kratos
+
+    site:
+      domain_name: gep1.kratos
+
+    services:
+      ntp:
+        servers: [192.168.2.100]
+        timezone: Etc/UTC
+  
+    networks:
+      customer:
+        description: Customer/WAN network (external)
+        cidr: 10.243.76.0/23
+        gateway: 10.243.76.1
+        dns_servers: [10.243.25.50, 10.243.25.53]
+      management:
+        description: Management network (internal cluster)
+        cidr: 192.168.2.0/24
+        gateway: 192.168.2.1
+        dns_servers: [192.168.2.1]
+      idrac:
+        description: iDRAC out-of-band network (BMC/OOB)
+        cidr: 192.168.0.0/24
+        gateway: 192.168.0.1
+
+    opensense:
+      mgmt_ip: 192.168.2.1
+      wan_ip: 10.243.77.71
+
+  children:
+    # -------------------------------------------------------------------------
+    # MANAGEMENT HOSTS
+    # -------------------------------------------------------------------------
+    management:
+      vars: {}
+      hosts:
+        mgmt-kvm:
+          ansible_host: 10.243.77.70   # connect_via: customer
+          description: Primary Management Host
+          host_type: baremetal
+          priority: primary
+
+    # -------------------------------------------------------------------------
+    # CLUSTERS
+    # -------------------------------------------------------------------------
+    clusters:
+      children:
+        local:
+          vars:
+            cluster_type: mcm
+            ansible_ssh_private_key_file: rancher_ssh_key
+          hosts:
+            mcm1:
+              ansible_host: 192.168.2.8   # connect_via: management
+              description: MCM node
+              host_type: libvirt_vm
+              vm:
+                memory_mb: 16384
+                vcpus: 8
+                disk_gb: 500
+                backing_store: /var/lib/libvirt/config/images/9_5_hardened_image_vm.qcow2
+                os_variant: rhel9.5
+                network_bridge: br-mgmt
+        openspace-osms:
+          vars:
+            cluster_type: osms
+            ansible_ssh_private_key_file: osms_ssh_key
+          hosts:
+            osms1:
+              ansible_host: 192.168.2.9   # connect_via: management
+              description: OSMS node
+              host_type: libvirt_vm
+              vm:
+                memory_mb: 32768
+                vcpus: 16
+                disk_gb: 600
+                backing_store: /var/lib/libvirt/config/images/9_5_hardened_image_vm.qcow2
+                os_variant: rhel9.5
+                network_bridge: br-mgmt
+        openspace-osdc:
+          vars:
+            cluster_type: osdc
+            ansible_ssh_private_key_file: osdc_ssh_key
+          hosts:
+            osdc1:
+              ansible_host: 192.168.2.16   # connect_via: management
+              description: OSDC node
+              host_type: baremetal
+            osdc2:
+              ansible_host: 192.168.2.17   # connect_via: management
+              description: OSDC node
+              host_type: baremetal

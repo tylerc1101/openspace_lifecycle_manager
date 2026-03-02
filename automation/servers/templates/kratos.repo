@@ -1,0 +1,17 @@
+[rhel-9-baseos-rhui-rpms]
+name=Red Hat Enterprise Linux 9 for $basearch - BaseOS from RHUI (RPMs)
+baseurl=https://rhel9-repo.secops.kratosdefense.com/rhel-9-baseos-rhui-rpms
+enabled=1
+gpgcheck=1
+
+[rhel-9-appstream-rhui-rpms]
+name=Red Hat Enterprise Linux 9 for $basearch - AppStream from RHUI (RPMs)
+baseurl=https://rhel9-repo.secops.kratosdefense.com/rhel-9-appstream-rhui-rpms
+enabled=1
+gpgcheck=1
+
+[rhui-client-config-server-9]
+name=Red Hat Enterprise Linux 9 for $basearch - Client Config from RHUI (RPMs)
+baseurl=https://rhel9-repo.secops.kratosdefense.com/rhui-client-config-server-9
+enabled=1
+gpgcheck=1

@@ -1,0 +1,23 @@
+version: '3'
+
+vars:
+  TASKS_DIR: "{{.ROOT_DIR}}/tasks"
+
+includes:
+  LifeCycle-Manager:
+    taskfile: ../lifecycle-manager/Taskfile.lcm.yml
+    internal: true
+
+tasks:
+  Node_Prep:
+    desc: "Prepare servers for OpenSpace deployment"
+    requires:
+      vars: [HOSTS]
+    cmds:
+      - task: LifeCycle-Manager:banner
+        vars:
+          MESSAGE: "🚀 STEP: Node Preparation | HOSTS: {{.HOSTS}}"
+      - task: LifeCycle-Manager:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/main.yml"
+          LIMIT: "{{.HOSTS}}"

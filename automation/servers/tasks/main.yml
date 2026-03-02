@@ -1,0 +1,84 @@
+- name: Configure "{{ target_hosts }}"
+  hosts: all
+  become: true
+
+  tasks:
+#=============================================================================
+# Common node configuration tasks for all nodes
+#=============================================================================
+    - name: Set Hostname
+      ansible.builtin.hostname:
+        name: "{{ (inventory_hostname | replace('_','-')) }}.{{ domain_name }}"
+
+    - name: Update /etc/resolv.conf with customer DNS servers
+      lineinfile:
+        path: /etc/resolv.conf
+        line: "nameserver {{ item }}"
+        create: yes
+        state: present
+      loop: "{{ customer_dns_servers }}"
+
+    - name: Create repo file
+      copy:
+        src: "../templates/kratos.repo"
+        dest: /etc/yum.repos.d/kratos.repo
+        owner: root
+        group: root
+        mode: "0644"
+    
+    - name: Configure chrony
+      copy:
+        dest: /etc/chrony.conf
+        content: |
+          server 192.168.2.1 iburst
+          driftfile /var/lib/chrony/drift
+          makestep 1.0 3
+          rtcsync
+          logdir /var/log/chrony
+        mode: '0644'
+
+    - name: Enable and start chronyd
+      systemd:
+        name: chronyd
+        enabled: yes
+        state: started
+
+#=============================================================================
+# Mangement Node Configuration Only
+#=============================================================================
+    - name: Run MCM Node Configuration Tasks
+      include_tasks: mgmt.yml
+      when: "'management' in group_names"
+
+#=============================================================================
+# MCM Node Configuration Only
+#=============================================================================
+    - name: Run MCM Node Configuration Tasks
+      include_tasks: mcm.yml
+      when: "'mcm-clusters' in group_names"
+    
+#=============================================================================
+# OSMS Node Configuration Only
+#============================================================================= 
+    - name: Run OSMS Node Configuration Tasks
+      include_tasks: osms.yml
+      when: "'osms-clusters' in group_names"
+
+#=============================================================================
+# OSDC Node Configuration Only
+#=============================================================================
+    - name: Run OSDC Node Configuration Tasks
+      include_tasks: osdc.yml
+      when: "'osdc-clusters' in group_names"
+
+#=============================================================================
+# Cluster Node Configuration (Run on MCM, OSMS, and OSDC nodes)
+#=============================================================================
+    - name: Run Cluster Node Configuration Tasks
+      include_tasks: cluster-tasks.yml
+      when: >
+        "'mcm-clusters' in group_names" or
+        "'osms-clusters' in group_names" or
+        "'osdc-clusters' in group_names"
+
+

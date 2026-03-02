@@ -1,0 +1,23 @@
+####################################################################################
+# HELM VARIABLES
+####################################################################################
+
+# Control Plane and Kube-VIP Service LB information
+
+RKE2_API_VIP            = {{ vips.api_mcm }}
+RKE2_API_DNS            = api-mcm.{{ domain_name }}
+
+# Ingress and Kube-VIP Service LB information
+
+WILDCARD_INGRESS_VIP    = {{ vips.mcm_wildcard }}
+WILDCARD_INGRESS_DNS    = mcm.{{ domain_name }}
+
+####################################################################################
+# 1-NODE CONFIGURATION
+####################################################################################
+NODE_COUNT              = 1
+
+VM_NIC_INTERFACE                = enp1s0
+VM_PROVISIONING_NIC_INTERFACE   = enp2s0
+VM_FIRMWARE                     = uefi
+VM_EFI_SEC_BOOT_ENABLED         = true

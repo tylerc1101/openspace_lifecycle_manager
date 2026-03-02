@@ -1,0 +1,7 @@
+- name: Install required packages for managment tasks
+  ansible.builtin.yum:
+    name:
+      - "@Container Management"
+      - wget
+    state: present
+    disable_gpg_check: yes

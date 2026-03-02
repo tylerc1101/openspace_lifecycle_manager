@@ -1,0 +1,30 @@
+- name: Preflight - check required RPMs are installed (fast)
+  ansible.builtin.shell: rpm -q virt-install libguestfs libcdio
+  register: rpm_check
+  changed_when: false
+  failed_when: false
+
+- name: Install required libvirt/virtualization packages only if missing
+  ansible.builtin.yum:
+    name:
+      - "@Virtualization Platform"
+      - "@Development Tools"
+      - virt-install
+      - libcdio
+      - libguestfs
+      - gcc
+      - openssl-devel
+      - libffi-devel
+      - zlib-devel
+      - xz-devel
+      - readline-devel
+    state: present
+    disable_gpg_check: yes
+  when: rpm_check.rc != 0
+
+- name: Ensure libvirt daemon started/enabled (don't fail if unit missing)
+  ansible.builtin.systemd:
+    name: libvirtd
+    state: started
+    enabled: true
+  failed_when: false

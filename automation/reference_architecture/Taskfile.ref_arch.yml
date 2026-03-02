@@ -1,0 +1,37 @@
+version: '3'
+
+includes:
+  LifeCycle-Manager:
+    taskfile: ../lifecycle-manager/Taskfile.lcm.yml
+    internal: true
+
+  Clusters:
+    taskfile: ../clusters/Taskfile.clusters.yml
+    internal: true
+
+  Onboarder:
+    taskfile: ../onboarder/Taskfile.onboarder.yml
+    internal: true
+
+  Servers:
+    taskfile: ../servers/Taskfile.servers.yml
+    internal: true
+
+  Libvirt:
+    taskfile: ../libvirt/Taskfile.libvirt.yml
+    internal: true
+
+  Cockpit:
+    taskfile: ../cockpit/Taskfile.cockpit.yml
+    internal: true
+
+tasks:
+  Basekit:Deploy:
+    desc: "Deploy Reference Architecture BaseKit components (OPNsense, VMs, MCM)"
+    cmds:
+      - task: _banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy Reference Architecture BaseKit (OPNsense, VMs, MCM)"
+      - task: opnsense:deploy
+      - task: vm:libvirt:deploy
+      - task: onboarder:deploy

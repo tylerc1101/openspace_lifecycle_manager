@@ -1,0 +1,170 @@
+- name: Expand disk partition and logical volumes on target VMs
+  hosts: "{{ libvirt_host | default('localhost') }}"
+  become: true
+  gather_facts: false
+
+  vars:
+    target_vm_list: >-
+      {{
+        (target_vms if (target_vms is sequence and target_vms is not string)
+         else (target_vms | default('') | string | split(',')))
+        | map('trim') | reject('equalto','') | list
+      }}
+
+    disk_device: /dev/vda
+    partition_number: 3
+    vg_name: vg_root
+
+    lv_expansions:
+      - { name: lv_log,   percent: 4,   mount: /var/log }
+      - { name: lv_vmp,   percent: 4,   mount: /var/tmp }
+      - { name: lv_audit, percent: 4,   mount: /var/log/audit }
+      - { name: lv_tmp,   percent: 5,   mount: /tmp }
+      - { name: lv_home,  percent: 25,  mount: /home }
+      - { name: lv_var,   percent: 50,  mount: /var }
+      - { name: lv_root,  percent: 100, mount: / }
+
+  tasks:
+    - name: Ensure target_vms provided
+      ansible.builtin.assert:
+        that:
+          - target_vm_list | length > 0
+        fail_msg: "No target_vms provided. Example: -e target_vms=mcm1 or -e target_vms=mcm1,osms1"
+
+    - name: Run LVM expansion steps on each target VM
+      loop: "{{ target_vm_list }}"
+      loop_control:
+        loop_var: vm_name
+        label: "{{ vm_name }}"
+      block:
+        - name: Gather facts on VM (needed for become + some modules; optional)
+          ansible.builtin.setup:
+          delegate_to: "{{ vm_name }}"
+
+        - name: Check if partition exists
+          ansible.builtin.shell: >
+            parted {{ disk_device }} --script --fix print 2>/dev/null
+            | grep -Eq '^\s*{{ partition_number }}\s' && echo FOUND || echo NOTFOUND
+          register: partition_check
+          changed_when: false
+          delegate_to: "{{ vm_name }}"
+
+        - name: Get partition and disk information
+          ansible.builtin.shell: |
+            set -e
+            DISK_END=$(parted {{ disk_device }} unit s print free 2>/dev/null | awk -F: '/^Disk {{ disk_device }}:/ {gsub(/s/,"",$3); print $3}')
+            PART_LINE=$(parted {{ disk_device }} unit s print 2>/dev/null | awk 'BEGIN{p={{ partition_number }} } $1==p {print}')
+            PART_START=$(echo "$PART_LINE" | awk '{print $2}')
+            PART_END=$(echo "$PART_LINE" | awk '{print $3}' | sed 's/s//')
+
+            echo "DISK_END=$DISK_END"
+            echo "PART_START=$PART_START"
+            echo "PART_END=$PART_END"
+
+            # 2048 sectors tolerance
+            if [ "$PART_END" -ge "$((DISK_END - 2048))" ]; then
+              echo "NEEDS_RESIZE=false"
+            else
+              echo "NEEDS_RESIZE=true"
+              echo "AVAILABLE_SECTORS=$((DISK_END - PART_END))"
+            fi
+          args:
+            executable: /bin/bash
+          register: partition_info
+          changed_when: false
+          delegate_to: "{{ vm_name }}"
+
+        - name: Parse partition information
+          ansible.builtin.set_fact:
+            part_start: "{{ (partition_info.stdout | regex_search('PART_START=([^\\s]+)', '\\1')) | default('') }}"
+            needs_partition_resize: "{{ 'NEEDS_RESIZE=true' in partition_info.stdout }}"
+
+        - name: Display partition status
+          ansible.builtin.debug:
+            msg: "VM {{ vm_name }} partition {{ partition_number }}: {{ 'needs expansion' if needs_partition_resize else 'already at maximum size' }}"
+
+        - name: Expand partition if needed
+          when: needs_partition_resize | bool
+          delegate_to: "{{ vm_name }}"
+          block:
+            - name: Remove and recreate partition (ignore kernel warnings)
+              ansible.builtin.shell: |
+                set -e
+                parted {{ disk_device }} --script -- rm {{ partition_number }} 2>&1 || true
+                parted {{ disk_device }} --script -- mkpart primary {{ part_start }} 100% 2>&1 || true
+                parted {{ disk_device }} --script -- set {{ partition_number }} lvm on 2>&1 || true
+                echo "Partition table updated"
+              args:
+                executable: /bin/bash
+              register: parted_result
+              changed_when: true
+              failed_when: false
+
+            - name: Inform kernel of partition changes (best-effort)
+              ansible.builtin.shell: |
+                partprobe {{ disk_device }} 2>/dev/null || true
+                partx -u {{ disk_device }} 2>/dev/null || true
+                blockdev --rereadpt {{ disk_device }} 2>/dev/null || true
+              args:
+                executable: /bin/bash
+              changed_when: false
+              failed_when: false
+
+            - name: Wait for kernel to process changes
+              ansible.builtin.pause:
+                seconds: 3
+
+        - name: Resize physical volume (safe to run)
+          ansible.builtin.command: pvresize {{ disk_device }}{{ partition_number }}
+          register: pvresize_result
+          delegate_to: "{{ vm_name }}"
+          failed_when: pvresize_result.rc != 0
+          changed_when: >
+            pvresize_result.rc == 0 and
+            ('0 physical volume(s) resized' not in (pvresize_result.stdout + pvresize_result.stderr))
+
+        - name: Get volume group free extents
+          ansible.builtin.shell: "vgs --noheadings -o vg_free_count {{ vg_name }} | awk '{print $1}'"
+          register: vg_info
+          changed_when: false
+          delegate_to: "{{ vm_name }}"
+          failed_when: false
+
+        - name: Set free extents fact for this VM
+          ansible.builtin.set_fact:
+            vg_free_extents: "{{ (vg_info.stdout | trim | default('0')) | int }}"
+
+        - name: Extend logical volumes if space available
+          ansible.builtin.command: "lvextend -l +{{ item.percent }}%FREE /dev/{{ vg_name }}/{{ item.name }}"
+          loop: "{{ lv_expansions }}"
+          register: lv_extend_result
+          when: vg_free_extents | int > 0
+          delegate_to: "{{ vm_name }}"
+          failed_when: false
+          changed_when: >
+            lv_extend_result.rc == 0 and
+            ('matches existing size' not in (lv_extend_result.stdout | default('')))
+
+        - name: Grow XFS filesystems for extended volumes
+          ansible.builtin.command: "xfs_growfs {{ item.item.mount }}"
+          loop: "{{ lv_extend_result.results | default([]) }}"
+          when:
+            - vg_free_extents | int > 0
+            - item.rc is defined
+            - item.rc == 0
+            - item.changed | default(false)
+          loop_control:
+            label: "{{ item.item.name }}"
+          delegate_to: "{{ vm_name }}"
+          failed_when: false
+
+        - name: Display final filesystem sizes
+          ansible.builtin.command: df -h
+          register: df_output
+          changed_when: false
+          delegate_to: "{{ vm_name }}"
+          failed_when: false
+
+        - name: Show filesystem sizes
+          ansible.builtin.debug:
+            var: df_output.stdout_lines

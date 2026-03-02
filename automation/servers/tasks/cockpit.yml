@@ -1,0 +1,22 @@
+- name: Preflight - check required RPMs are installed (fast)
+  ansible.builtin.shell: rpm -q cockpit cockpit-machines
+  register: rpm_check
+  changed_when: false
+  failed_when: false
+
+- name: Install required cockpit packages only if missing
+  ansible.builtin.yum:
+    name:
+      - "@Headless Management"
+      - cockpit
+      - cockpit-machines
+    state: present
+    disable_gpg_check: yes
+  when: rpm_check.rc != 0
+
+- name: Ensure cockpit socket started/enabled (don't fail if unit missing)
+  ansible.builtin.systemd:
+    name: cockpit.socket
+    state: started
+    enabled: true
+  failed_when: false

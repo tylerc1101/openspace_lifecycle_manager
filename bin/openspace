@@ -1,0 +1,5 @@
+#!/bin/bash
+
+OPENSPACE_ROOT="${OPENSPACE_ROOT:-/opt/openspace}"
+
+python3 "$OPENSPACE_ROOT/automation/lifecycle-manager/openspace_tui.py"

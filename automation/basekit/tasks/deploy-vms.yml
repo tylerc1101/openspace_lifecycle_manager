@@ -1,0 +1,201 @@
+---
+- name: Create OpenSpace VMs
+  hosts: "{{ target_hosts | default('mgmt_kvm') }}"
+  become: yes
+  vars:
+    images_dir: /var/lib/libvirt/config/images
+    
+    # Extract network CIDR prefix (e.g., "23" from "/23")
+    mgmt_cidr_prefix: "{{ mgmt_cidr | regex_replace('^/', '') }}"
+
+  tasks:
+    # Pre-flight checks
+
+    - name: Check if hardened image exists
+      ansible.builtin.stat:
+        path: "{{ images_dir }}/9_5_hardened_image_vm.qcow2"
+      register: hardened_image_stat
+      failed_when: not hardened_image_stat.stat.exists
+
+    - name: Get list of existing VMs
+      ansible.builtin.shell: virsh list --all --name
+      register: existing_vms
+      changed_when: false
+
+    # ---------- MCM ----------
+    - name: Check if MCM VM already exists
+      ansible.builtin.set_fact:
+        mcm_exists: "{{ vm_mcm_name in existing_vms.stdout_lines }}"
+
+    - name: Create VM - MCM
+      ansible.builtin.command:
+        cmd: >
+          virt-install
+          --name {{ vm_mcm_name }}
+          --memory {{ vm_mcm_memory }}
+          --vcpus {{ vm_mcm_vcpus }}
+          --cpu host-passthrough
+          --disk size={{ vm_mcm_disk_size }},backing_store="{{ vm_mcm_backing_store }}"
+          --os-variant {{ vm_mcm_os_variant }}
+          --network bridge={{ vm_mcm_network_bridge }},model=virtio
+          --import
+          --noautoconsole
+          --graphics vnc
+          --boot uefi
+          --print-xml
+      register: mcm_xml
+      when: not mcm_exists
+
+    - name: Define MCM VM
+      community.libvirt.virt:
+        command: define
+        xml: "{{ mcm_xml.stdout }}"
+      when: not mcm_exists
+
+    - name: Get MCM disk path
+      ansible.builtin.shell: virsh domblklist {{ vm_mcm_name }} | grep vda | awk '{print $2}'
+      register: mcm_disk
+      changed_when: false
+      when: not mcm_exists
+
+    - name: Create network config for MCM
+      ansible.builtin.copy:
+        dest: /tmp/ifcfg-enp1s0
+        content: |
+          TYPE=Ethernet
+          BOOTPROTO=static
+          NAME=static-enp1s0
+          DEVICE=enp1s0
+          ONBOOT=yes
+          IPADDR={{ mcm_nodes[0].mgmt_ip }}
+          PREFIX={{ mgmt_cidr_prefix }}
+          GATEWAY={{ mgmt_gateway }}
+          DNS1={{ mgmt_dns_servers[0] }}
+          {% if mgmt_dns_servers | length > 1 %}
+          DNS2={{ mgmt_dns_servers[1] }}
+          {% endif %}
+      when: not mcm_exists
+
+    - name: Inject network config into MCM disk
+      ansible.builtin.command:
+        cmd: virt-copy-in -a {{ mcm_disk.stdout }} /tmp/ifcfg-enp1s0 /etc/sysconfig/network-scripts/
+      environment:
+        LIBGUESTFS_BACKEND: direct
+      when: not mcm_exists
+
+    - name: Remove temporary network config file for MCM
+      ansible.builtin.file:
+        path: /tmp/ifcfg-enp1s0
+        state: absent
+
+    - name: Start MCM VM
+      community.libvirt.virt:
+        name: "{{ vm_mcm_name }}"
+        state: running
+        autostart: yes
+      when: not mcm_exists
+      register: mcm_start
+
+    # ---------- OSMS ----------
+    - name: Check if OSMS VM already exists
+      ansible.builtin.set_fact:
+        osms_exists: "{{ vm_osms_name in existing_vms.stdout_lines }}"
+
+    - name: Create VM - OSMS
+      ansible.builtin.command:
+        cmd: >
+          virt-install
+          --name {{ vm_osms_name }}
+          --memory {{ vm_osms_memory }}
+          --vcpus {{ vm_osms_vcpus }}
+          --cpu host-passthrough
+          --disk size={{ vm_osms_disk_size }},backing_store="{{ images_dir}}/9_5_hardened_image_vm.qcow2"
+          --os-variant {{ vm_osms_os_variant }}
+          --network bridge={{ vm_osms_network_bridge }},model=virtio
+          --import
+          --noautoconsole
+          --graphics vnc
+          --boot uefi
+          --print-xml
+      register: osms_xml
+      when: not osms_exists
+
+    - name: Define OSMS VM
+      community.libvirt.virt:
+        command: define
+        xml: "{{ osms_xml.stdout }}"
+      when: not osms_exists
+
+    - name: Get OSMS disk path
+      ansible.builtin.shell: virsh domblklist {{ vm_osms_name }} | grep vda | awk '{print $2}'
+      register: osms_disk
+      changed_when: false
+      when: not osms_exists
+
+    - name: Create network config for OSMS
+      ansible.builtin.copy:
+        dest: /tmp/ifcfg-enp1s0
+        content: |
+          TYPE=Ethernet
+          BOOTPROTO=static
+          NAME=static-enp1s0
+          DEVICE=enp1s0
+          ONBOOT=yes
+          IPADDR={{ osms_nodes[0].mgmt_ip }}
+          PREFIX={{ mgmt_cidr_prefix }}
+          GATEWAY={{ mgmt_gateway }}
+          DNS1={{ mgmt_dns_servers[0] }}
+          {% if mgmt_dns_servers | length > 1 %}
+          DNS2={{ mgmt_dns_servers[1] }}
+          {% endif %}
+      when: not osms_exists
+
+    - name: Inject network config into OSMS disk
+      ansible.builtin.command:
+        cmd: virt-copy-in -a {{ osms_disk.stdout }} /tmp/ifcfg-enp1s0 /etc/sysconfig/network-scripts/
+      environment:
+        LIBGUESTFS_BACKEND: direct
+      when: not osms_exists
+
+    - name: Remove temporary network config file for OSMS
+      ansible.builtin.file:
+        path: /tmp/ifcfg-enp1s0
+        state: absent
+
+    - name: Start OSMS VM
+      community.libvirt.virt:
+        name: "{{ vm_osms_name }}"
+        state: running
+        autostart: yes
+      when: not osms_exists
+      register: osms_start
+
+# ---------- Wait for VMs ----------
+
+    - name: Wait for MCM SSH to be available (initial boot)
+      ansible.builtin.wait_for:
+        host: "{{ hostvars['mcm1']['ansible_host'] }}"
+        port: 22
+        delay: 120
+        timeout: 900
+      when: mcm_start is changed
+
+    - name: Verify SSH connectivity to MCM
+      ansible.builtin.command: echo "SSH_OK"
+      delegate_to: mcm1
+      register: mcm_ssh_test
+      until: mcm_ssh_test.stdout is search("SSH_OK")
+      retries: 30
+      delay: 30
+      when: mcm_start is changed
+      changed_when: false
+
+    - name: Check MCM uptime to detect if hardening reboots are complete
+      ansible.builtin.command: cat /proc/uptime
+      delegate_to: mcm1
+      register: mcm_uptime_raw
+      until: (mcm_uptime_raw.stdout.split()[0] | float) > 150
+      retries: 20
+      delay: 60
+      when: mcm_start is changed
+      changed_when: false

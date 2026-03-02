@@ -1,0 +1,159 @@
+---
+# ==============================================================================
+# Post OSDC SR-IOV Configuration
+# ==============================================================================
+# Applies SR-IOV network and node policy configurations to the OSDC cluster.
+# Files applied (in order):
+#   1. SR-IOV Networks (difi0, difi2, traffic)
+#   2. SR-IOV Node Policies (osdc1, osdc2)
+#   3. Anti-flood Policy
+# ==============================================================================
+
+- name: Apply SR-IOV Configurations
+  hosts: localhost
+  gather_facts: true
+
+  vars:
+    kubeconfig_path: "{{ lookup('env', 'OLM_GENERATED_FILES_DIR') }}/osdc.yml"
+    clusters_templates_dir: "{{ lookup('env', 'OLM_CLUSTERS_TEMPLATES_DIR') }}"
+
+    # Files to apply in order
+    sriov_files:
+      - sriov-network-difi0.yml
+      - sriov-network-difi2.yml
+      - sriov-network-traffic.yml
+      - osdc1-sriov-node-policy.yml
+      - osdc2-sriov-node-policy.yml
+      - anti-flood-policy.yml
+
+  tasks:
+    # ==========================================================================
+    # Validation
+    # ==========================================================================
+    - name: Check if kubeconfig exists
+      ansible.builtin.stat:
+        path: "{{ kubeconfig_path }}"
+      register: kubeconfig_stat
+
+    - name: Fail if kubeconfig is missing
+      ansible.builtin.assert:
+        that:
+          - kubeconfig_stat.stat.exists
+        fail_msg: "kubeconfig not found at: {{ kubeconfig_path }}"
+
+    - name: Check if templates directory exists
+      ansible.builtin.stat:
+        path: "{{ clusters_templates_dir }}"
+      register: templates_dir_stat
+
+    - name: Fail if templates directory is missing
+      ansible.builtin.assert:
+        that:
+          - templates_dir_stat.stat.exists
+          - templates_dir_stat.stat.isdir
+        fail_msg: "Templates directory not found (or not a directory): {{ clusters_templates_dir }}"
+
+    - name: Gather stats for all SR-IOV manifest files
+      ansible.builtin.stat:
+        path: "{{ clusters_templates_dir }}/{{ item }}"
+      register: file_checks
+      loop: "{{ sriov_files }}"
+      loop_control:
+        label: "{{ item }}"
+      failed_when: false
+
+    - name: Fail if any SR-IOV manifest file is missing
+      ansible.builtin.assert:
+        that:
+          - (file_checks.results | map(attribute='stat.exists') | min) | bool
+        fail_msg: >-
+          Missing SR-IOV manifest file(s):
+          {{
+            file_checks.results
+            | rejectattr('stat.exists')
+            | map(attribute='item')
+            | list
+            | join(', ')
+          }}
+
+    # ==========================================================================
+    # openspace-nf namespace creation
+    # ==========================================================================
+    - name: Ensure openspace-nf namespace exists
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - create
+          - namespace
+          - openspace-nf
+          - "--kubeconfig={{ kubeconfig_path }}"
+      register: ns_create
+      changed_when: ns_create.rc == 0
+      failed_when: false
+
+    - name: Show namespace creation result (if already exists, that's fine)
+      ansible.builtin.debug:
+        msg: "{{ ns_create.stderr | default('') }}{{ ns_create.stdout | default('') }}"
+
+    # ==========================================================================
+    # Apply manifests (in order)
+    # ==========================================================================
+    - name: Apply SR-IOV manifests in order
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - apply
+          - -f
+          - "{{ clusters_templates_dir }}/{{ item }}"
+          - "--kubeconfig={{ kubeconfig_path }}"
+      register: apply_result
+      changed_when: "'configured' in apply_result.stdout or 'created' in apply_result.stdout"
+      loop: "{{ sriov_files }}"
+      loop_control:
+        label: "{{ item }}"
+
+    - name: Display application results
+      ansible.builtin.debug:
+        msg: "{{ item.item }}: {{ item.stdout_lines | default(item.stdout) }}"
+      loop: "{{ apply_result.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+
+    # ==========================================================================
+    # Verification
+    # ==========================================================================
+    - name: Wait a moment for resources to be created
+      ansible.builtin.pause:
+        seconds: 5
+
+    - name: Verify SR-IOV network resources
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - sriovnetwork
+          - --all-namespaces
+          - "--kubeconfig={{ kubeconfig_path }}"
+      register: sriov_networks
+      failed_when: false
+
+    - name: Display SR-IOV networks
+      ansible.builtin.debug:
+        msg: "{{ sriov_networks.stdout_lines }}"
+      when: sriov_networks.rc == 0
+
+    - name: Verify SR-IOV node policies
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - get
+          - sriovnetworknodepolicy
+          - --all-namespaces
+          - "--kubeconfig={{ kubeconfig_path }}"
+      register: sriov_policies
+      failed_when: false
+
+    - name: Display SR-IOV node policies
+      ansible.builtin.debug:
+        msg: "{{ sriov_policies.stdout_lines }}"
+      when: sriov_policies.rc == 0

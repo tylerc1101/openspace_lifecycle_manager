@@ -1,0 +1,88 @@
+version: '3'
+
+vars:
+  TASKS_DIR: "{{.ROOT_DIR}}/tasks"
+
+includes:
+  Onboarder:
+    taskfile: ../onboarder/Taskfile.onboarder.yml
+    internal: true
+
+  LifeCycle-Manager:
+    taskfile: ../lifecycle-manager/Taskfile.lcm.yml
+    internal: true
+
+tasks:
+  MCM:Deploy:
+    desc: "Deploy MCM Cluster using the Onboarder container"
+    requires:
+      vars: [CLUSTER_NAME]
+    cmds:
+      - task: LifeCycle-Manager:banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy MCM Cluster using Onboarder container"
+      - task: Onboarder:Deploy_Onboarder_Container
+      - task: Onboarder:Run_All_Makes
+
+  MCM:Destroy:
+
+  OSMS:Deploy:
+    desc: "Deploy OpenSpace Management Server (OSMS) cluster into Rancher"
+    requires:
+      vars: [CLUSTER_NAME]
+    cmds:
+      - task: LifeCycle-Manager:banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy OSMS Cluster '{{.CLUSTER_NAME}}' into Rancher"
+      - task: LifeCycle-Manager:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/deploy_downstream_cluster.yml"
+          EXTRA_VARS: "cluster_name={{.CLUSTER_NAME}}"
+
+  OSMS:Get_Kubeconfig:
+    desc: "Retrieve kubeconfig for OSMS cluster and save to local file"
+    requires:
+      vars: [CLUSTER_NAME]
+    cmds:
+      - task: LifeCycle-Manager:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/get_kubeconfig.yml"
+          EXTRA_VARS: "cluster_name={{.CLUSTER_NAME}}"
+
+  OSMS:Destroy:
+
+  OSDC:Deploy:
+    desc: "Deploy OpenSpace Data Path (OSDC) cluster into Rancher"
+    requires:
+      vars: [CLUSTER_NAME]
+    cmds:
+      - task: LifeCycle-Manager:banner
+        vars:
+          MESSAGE: "🚀 STEP: Deploy OSDC Cluster '{{.CLUSTER_NAME}}' into Rancher"
+      - task: LifeCycle-Manager:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/deploy_downstream_cluster.yml"
+          EXTRA_VARS: "cluster_name={{.CLUSTER_NAME}}"
+      - task: OSDC:Run_Post_OSDC_Tasks
+
+  OSDC:Run_Post_OSDC_Tasks:
+    desc: "Run post-deployment tasks for OSDC cluster (e.g. SRIOV configuration, etc.)"
+    requires:
+      vars: [CLUSTER_NAME]
+    cmds:
+      - task: LifeCycle-Manager:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/post_osdc_tasks.yml"
+          EXTRA_VARS: "cluster_name={{.CLUSTER_NAME}}"
+
+  OSDC:Get_Kubeconfig:
+    desc: "Retrieve kubeconfig for OSDC cluster and save to local file"
+    requires:
+      vars: [CLUSTER_NAME]
+    cmds:
+      - task: LifeCycle-Manager:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/get_kubeconfig.yml"
+          EXTRA_VARS: "cluster_name={{.CLUSTER_NAME}}"
+
+  OSDC:Destroy:
