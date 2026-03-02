@@ -1,5 +1,5 @@
 # ============================================================================
-# OpenSpace Environment Taskfile — ${ENV_NAME}
+# OpenSpace Environment Taskfile — {{ env_name }}
 #
 # This is the entrypoint Taskfile for this environment.
 # It includes the automation Taskfile and injects env-specific variables.
@@ -10,32 +10,19 @@ version: '3'
 
 includes:
   LifeCycle-Manager:
-    taskfile: ${AUTOMATION_DIR}/lifecycle-manager/Taskfile.lcm.yml
+    taskfile: {{ openspace_directory }}/automation/lifecycle-manager/Taskfile.lcm.yml
   Reference_Architecture_Deployments:
-    taskfile: ${AUTOMATION_DIR}/reference_architecture/Taskfile.ref_arch.yml
+    taskfile: {{ openspace_directory }}/automation/reference_architecture/Taskfile.ref_arch.yml
   Clusters:
-    taskfile: ${AUTOMATION_DIR}/clusters/Taskfile.clusters.yml
+    taskfile: {{ openspace_directory }}/automation/clusters/Taskfile.clusters.yml
   Onboarder:
-    taskfile: ${AUTOMATION_DIR}/onboarder/Taskfile.onboarder.yml
+    taskfile: {{ openspace_directory }}/automation/onboarder/Taskfile.onboarder.yml
   Servers:
-    taskfile: ${AUTOMATION_DIR}/servers/Taskfile.servers.yml
+    taskfile: {{ openspace_directory }}/automation/servers/Taskfile.servers.yml
   Libvirt:
-    taskfile: ${AUTOMATION_DIR}/libvirt/Taskfile.libvirt.yml
-  Cockpit:
-    taskfile: ${AUTOMATION_DIR}/cockpit/Taskfile.libvirt.yml
+    taskfile: {{ openspace_directory }}/automation/libvirt/Taskfile.libvirt.yml
+  Services:
+    taskfile: {{ openspace_directory }}/automation/services/Taskfile.services.yml
   Custom:
-    taskfile: ${.ROOT_DIR}/custom.Taskfile.yml
-  
-
-# ---------------------------------------------------------------------------
-# Custom environment tasks
-# ---------------------------------------------------------------------------
-# Add environment-specific tasks here. They won't be overwritten on re-init
-# unless you choose to regenerate.
-#
-# Example:
-#   tasks:
-#     custom:hello:
-#       desc: "Custom task for ${ENV_NAME}"
-#       cmds:
-#         - echo "Hello from ${ENV_NAME}"
+    taskfile: {{ openspace_directory }}/env/{{ env_name }}/custom/Taskfile.yml
+    optional: true
