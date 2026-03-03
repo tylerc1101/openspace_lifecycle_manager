@@ -1,0 +1,111 @@
+---
+- name: Manage Onboarder Container
+  hosts: onboarder
+  gather_facts: false
+  become: true
+
+  vars:
+    image_tar: "{{ file | default('/opt/openspace/images/onboarder-3.5.0-rc7.tar.gz') }}"
+    image_tag: "onboarder-full:{{ tag | default('v3.5.0-rc7') }}"
+    container_name: "{{ container_name | default('onboarder') }}"
+
+  tasks:
+    # ==========================================================================
+    # LOAD
+    # ==========================================================================
+    - name: Ensure image exists
+      stat:
+        path: "{{ image_tar }}"
+      register: onboarder_image
+      tags: [load]
+
+    - name: Fail if image missing
+      fail:
+        msg: "Image not found at {{ image_tar }}"
+      when: not onboarder_image.stat.exists
+      tags: [load]
+
+    - name: Load image into Podman
+      command: "podman load -i {{ image_tar }}"
+      tags: [load]
+
+    # ==========================================================================
+    # RUN (create container if missing)
+    # ==========================================================================
+    - name: Check if container exists
+      command: "podman container exists {{ container_name }}"
+      register: container_exists
+      changed_when: false
+      failed_when: false
+      tags: [run]
+
+    - name: Run container if missing
+      command: >
+        podman run -it -d
+        --name {{ container_name }}
+        -w /docker-workspace
+        {{ image_tag }}
+        /bin/bash
+      when: container_exists.rc != 0
+      tags: [run]
+
+    # ==========================================================================
+    # START (start existing container if not running)
+    # ==========================================================================
+    - name: Check if onboarder container exists (start)
+      command: "podman container exists {{ container_name }}"
+      register: container_exists_start
+      changed_when: false
+      failed_when: false
+      tags: [start]
+
+    - name: Fail if container does not exist (start)
+      fail:
+        msg: "Container '{{ container_name }}' does not exist. Run with --tags run first."
+      when: container_exists_start.rc != 0
+      tags: [start]
+
+    - name: Check if container is running (start)
+      command: "podman inspect -f '{{ '{{.State.Running}}' }}' {{ container_name }}"
+      register: running_check
+      changed_when: false
+      tags: [start]
+
+    - name: Start container if not running (start)
+      command: "podman start {{ container_name }}"
+      when: running_check.stdout != "true"
+      tags: [start]
+
+    # ==========================================================================
+    # STOP (placeholder)
+    # ==========================================================================
+    - name: Stop onboarder container
+      command: "podman stop {{ container_name }}"
+      tags: [stop]
+
+    # ==========================================================================
+    # PREP (placeholder)
+    # ==========================================================================
+    - name: Prep onboarder container
+      command: "podman exec {{ container_name }} bash -lc 'true'"
+      tags: [prep]
+
+    # ==========================================================================
+    # VERIFY (shared)
+    # ==========================================================================
+    - name: Verify onboarder container is running
+      command: "podman inspect -f '{{ '{{.State.Running}}' }}' {{ container_name }}"
+      register: verify_running
+      changed_when: false
+      tags: [run, start]
+
+    - name: Fail if container not running
+      fail:
+        msg: "Onboarder container is not running"
+      when: verify_running.stdout != "true"
+      tags: [run, start]
+
+    - name: Success message
+      debug:
+        msg: "Onboarder container is running."
+      tags: [run, start]

@@ -5,7 +5,10 @@ all:
     env_name: GEP1
     openspace_directory: /opt/openspace
     openspace_lifecycle_manager: "1.2.0"
-    onboarder: "3.5.0-rc7"
+    onboarder:
+      tag: "v3.5.0-rc7"
+      file: "{{ openspace_directory }}/images/onboarder-3.5.0-rc7.tar.gz"
+      container_name: onboarder
     osms_tooling: "1.8.x"
     
     ansible_user: kratos
@@ -51,6 +54,15 @@ all:
           description: Primary Management Host
           host_type: baremetal
           priority: primary
+
+    containers:
+      vars:
+        ansible_connection: community.general.podman
+      hosts:
+        onboarder:
+          ansible_host: localhost
+          description: Onboarder Container for cluster provisioning
+          host_type: container
 
     # -------------------------------------------------------------------------
     # CLUSTERS

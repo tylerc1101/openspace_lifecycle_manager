@@ -8,10 +8,13 @@
 # ============================================================================
 version: '3'
 
+vars:
+  ONBOARDER_VERSION: "{{ onboarder.tag }}"
+
 includes:
-  LifeCycle-Manager:
+  Lifecycle:
     taskfile: {{ openspace_directory }}/automation/lifecycle-manager/Taskfile.lcm.yml
-  Reference_Architecture_Deployments:
+  Reference:
     taskfile: {{ openspace_directory }}/automation/reference_architecture/Taskfile.ref_arch.yml
   Clusters:
     taskfile: {{ openspace_directory }}/automation/clusters/Taskfile.clusters.yml
@@ -19,10 +22,8 @@ includes:
     taskfile: {{ openspace_directory }}/automation/onboarder/Taskfile.onboarder.yml
   Servers:
     taskfile: {{ openspace_directory }}/automation/servers/Taskfile.servers.yml
-  Libvirt:
-    taskfile: {{ openspace_directory }}/automation/libvirt/Taskfile.libvirt.yml
-  Services:
-    taskfile: {{ openspace_directory }}/automation/services/Taskfile.services.yml
+  Virtualization:
+    taskfile: {{ openspace_directory }}/automation/virtualization/Taskfile.virtualization.yml
   Custom:
     taskfile: {{ openspace_directory }}/env/{{ env_name }}/custom/Taskfile.yml
     optional: true

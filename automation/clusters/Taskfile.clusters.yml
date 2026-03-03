@@ -21,8 +21,7 @@ tasks:
       - task: LifeCycle-Manager:banner
         vars:
           MESSAGE: "🚀 STEP: Deploy MCM Cluster using Onboarder container"
-      - task: Onboarder:Deploy_Onboarder_Container
-      - task: Onboarder:Run_All_Makes
+      - task: Onboarder:Deploy
 
   MCM:Destroy:
 

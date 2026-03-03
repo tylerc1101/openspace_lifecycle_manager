@@ -6,10 +6,12 @@
     install_dir: "{{ lookup('env', 'ONBOARDER_INSTALL_DIR')}}"
     common_dir: "{{ lookup('env', 'ONBOARDER_COMMON_DIR')}}"
     sample_vsphere_dir: "{{ lookup('env', 'ONBOARDER_SAMPLE_VSPHERE_DIR')}}"
-    basekit_templates_dir: "{{ lookup('env', 'OLM_BASEKIT_TEMPLATES_DIR') }}"
 
   
   tasks:
+    - name: Ensure onboarder container is running
+      import_tasks: ../ensure_running.yml
+
     # a) Build directories
     - name: Ensure install directory exists
       file:
@@ -26,16 +28,6 @@
         mode: '0755'
         owner: root
         group: root
-
-    - name: Write resolv.conf in-place (unsafe)
-      ansible.builtin.copy:
-        content: |
-          nameserver 192.168.2.1
-        dest: /etc/resolv.conf
-        owner: root
-        group: root
-        mode: '0644'
-        unsafe_writes: true
 
     # b) Modify Makefiles
     - name: Deploy Makefile
