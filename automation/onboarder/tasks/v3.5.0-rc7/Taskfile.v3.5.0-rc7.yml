@@ -1,0 +1,143 @@
+version: '3'
+
+vars:
+  TASKS_DIR: "{{.ROOT_DIR}}/tasks"
+
+includes:
+  lcm:
+    taskfile: ../../../lifecycle-manager/Taskfile.lcm.yml
+    internal: true
+
+tasks:
+  Deploy:
+    desc: "Deploy full MCM stack (RKE2, Harbor, Rancher, Gitea, ArgoCD)"
+    cmds:
+      - task: rke2:deploy
+      - task: harbor:deploy
+      - task: rancher:deploy
+      - task: gitea:deploy
+      - task: argocd:deploy
+  
+  rke2:deploy:
+    desc: "Deploy RKE2 cluster + bootstrap images"
+    cmds:
+      - task: make:rke2:ansible-deploy
+      - task: make:rke2:bootstrap-images
+
+
+  harbor:deploy:
+    desc: "Deploy Harbor + load offline bundles"
+    cmds:
+      - task: make:harbor:helmfile-install
+      - task: make:harbor:load-darksite
+
+
+  rancher:deploy:
+    desc: "Deploy Rancher + apply Terraform bootstrap"
+    cmds:
+      - task: make:rancher:helmfile-install
+      - task: make:rancher:terraform-bootstrap
+
+
+  gitea:deploy:
+    desc: "Deploy Gitea Git server"
+    cmds:
+      - task: make:gitea:install
+
+
+  argocd:deploy:
+    desc: "Deploy ArgoCD GitOps platform"
+    cmds:
+      - task: make:argocd:install
+
+
+  # ============================================================
+  # Make Tasks
+  # ============================================================
+
+  make:rke2:ansible-deploy:
+    cmds:
+      - task: lcm:banner
+        vars:
+          MESSAGE: "🚀 Deploy RKE2 on MCM hosts"
+      - task: lcm:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/deploy.yml"
+          TAGS: "make1"
+
+
+  make:rke2:bootstrap-images:
+    cmds:
+      - task: lcm:banner
+        vars:
+          MESSAGE: "🚀 Push RKE2 images to MCM hosts"
+      - task: lcm:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/deploy.yml"
+          TAGS: "make2"
+
+
+  make:harbor:helmfile-install:
+    cmds:
+      - task: lcm:banner
+        vars:
+          MESSAGE: "🚀 Deploy Harbor to MCM cluster"
+      - task: lcm:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/deploy.yml"
+          TAGS: "make3"
+
+
+  make:harbor:load-darksite:
+    cmds:
+      - task: lcm:banner
+        vars:
+          MESSAGE: "🚀 Load images into Harbor"
+      - task: lcm:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/deploy.yml"
+          TAGS: "make4"
+
+
+  make:rancher:helmfile-install:
+    cmds:
+      - task: lcm:banner
+        vars:
+          MESSAGE: "🚀 Deploy Rancher to MCM cluster"
+      - task: lcm:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/deploy.yml"
+          TAGS: "make5"
+
+
+  make:rancher:terraform-bootstrap:
+    cmds:
+      - task: lcm:banner
+        vars:
+          MESSAGE: "🚀 Configure Rancher"
+      - task: lcm:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/deploy.yml"
+          TAGS: "make6"
+
+
+  make:gitea:install:
+    cmds:
+      - task: lcm:banner
+        vars:
+          MESSAGE: "🚀 Deploy Gitea to MCM cluster"
+      - task: lcm:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/deploy.yml"
+          TAGS: "make7"
+
+
+  make:argocd:install:
+    cmds:
+      - task: lcm:banner
+        vars:
+          MESSAGE: "🚀 Deploy ArgoCD to MCM cluster"
+      - task: lcm:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/deploy.yml"
+          TAGS: "make8"

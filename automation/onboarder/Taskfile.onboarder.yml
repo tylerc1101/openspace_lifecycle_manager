@@ -4,112 +4,64 @@ vars:
   TASKS_DIR: "{{.ROOT_DIR}}/tasks"
 
 includes:
-  LifeCycle-Manager:
+  lcm:
     taskfile: ../lifecycle-manager/Taskfile.lcm.yml
     internal: true
 
+  Onboarder_Internals:
+    taskfile: "{{.TASKS_DIR}}/{{.ONBOARDER_VERSION}}/Taskfile.{{.ONBOARDER_VERSION}}.yml"
+
 tasks:
-  Deploy:Onboarder_Container:
-    desc: "Deploy Onboarder container to MGMT host"
+  Deploy:
+    desc: "Deploy full MCM stack (RKE2, Harbor, Rancher, Gitea, ArgoCD)"
     cmds:
-      - task: LifeCycle-Manager:banner
+      - task: Image:Load
+      - task: Container:Run
+      - task: Container:Prep
+      - task: Onboarder_Internals:Deploy
+
+
+  Image:Load:
+    desc: "Load onboarder container image into host registry"
+    cmds:
+      - task: lcm:banner
         vars:
-          MESSAGE: "🚀 STEP: Deploy Onboarder container to MGMT host"
-      - task: LifeCycle-Manager:ansible-playbook
+          MESSAGE: "🚀 Load Onboarder image into host registry"
+      - task: lcm:ansible-playbook
         vars:
-          PLAYBOOK: "{{.TASKS_DIR}}/deploy_onboarder_container.yml"
-  
-  Run_All_Makes:
-    desc: "Run all Make commands in the Onboarder Container to deploy the MCM cluster"
+          PLAYBOOK: "{{.TASKS_DIR}}/main.onboarder.yml"
+          TAGS: "load"
+
+
+  Container:Run:
+    desc: "Run onboarder container"
     cmds:
-      - task: LifeCycle-Manager:banner
+      - task: lcm:banner
         vars:
-          MESSAGE: "🚀 STEP: Run all Make commands in Onboarder container to deploy MCM cluster"
-      - task: Deploy:RKE2
-      - task: Deploy:Harbor
-      - task: Deploy:Rancher
-      - task: Deploy:Gitea
-      - task: Deploy:ArgoCD
-
-  Deploy:RKE2:
-    desc: "Deploy RKE2 Kubernetes cluster using Onboarder container"
-    cmds:
-      - task: LifeCycle-Manager:banner
+          MESSAGE: "🚀 Run Onboarder container"
+      - task: lcm:ansible-playbook
         vars:
-          MESSAGE: "🚀 STEP: Deploy RKE2 Kubernetes cluster using Onboarder container"
-      - task: Make:Ansible_Deploy_RKE2_Cluster
-      - task: Make:Bootstrap_Container_Images_Run
-  
-  Deploy:Harbor:
-    desc: "Deploy Harbor container registry using Onboarder container"
+          PLAYBOOK: "{{.TASKS_DIR}}/main.onboarder.yml"
+          TAGS: "run"
+
+  Container:Start:
+    desc: "Start onboarder container if not already running"
     cmds:
-      - task: LifeCycle-Manager:banner
+      - task: lcm:banner
         vars:
-          MESSAGE: "🚀 STEP: Deploy Harbor container registry using Onboarder container"
-      - task: Make:Helmfile_Install_Harbor
-      - task: Make:Load_Darksite_Bundles
-
-  Deploy:Rancher:
-    desc: "Deploy Rancher management platform using Onboarder container"
-    cmds:
-      - task: LifeCycle-Manager:banner
+          MESSAGE: "🚀 Start Onboarder container if not already running"
+      - task: lcm:ansible-playbook
         vars:
-          MESSAGE: "🚀 STEP: Deploy Rancher management platform using Onboarder container"
-      - task: Make:Helmfile_Install_Rancher
-      - task: Make:Terraform_Rancher_Bootstrap_Apply
+          PLAYBOOK: "{{.TASKS_DIR}}/main.onboarder.yml"
+          TAGS: "start"
 
-  Deploy:Gitea:
-    desc: "Deploy Gitea Git server using Onboarder container"
+
+  Container:Prep:
+    desc: "Prepare onboarder container (configs, files, env)"
     cmds:
-      - task: LifeCycle-Manager:banner
+      - task: lcm:banner
         vars:
-          MESSAGE: "🚀 STEP: Deploy Gitea Git server using Onboarder container"
-      - task: Make:Install_Gitea
-
-  Deploy:ArgoCD:
-    desc: "Deploy ArgoCD GitOps platform using Onboarder container"
-    cmds:
-      - task: LifeCycle-Manager:banner
+          MESSAGE: "🚀 Prepare Onboarder container"
+      - task: lcm:ansible-playbook
         vars:
-          MESSAGE: "🚀 STEP: Deploy ArgoCD GitOps platform using Onboarder container"
-      - task: Make:Install_ArgoCD
-
-  Make:Ansible_Deploy_RKE2_Cluster:
-    desc: "Run Onboarder Make command to deploy RKE2 to MCM hosts"
-    cmds:
-      - make something
-
-  Make:Bootstrap_Container_Images_Run:
-    desc: "Run Onboarder Make command to push images to MCM hosts"
-    cmds:
-      - make something
-
-  Make:Helmfile_Install_Harbor:
-    desc: "Run Onboarder Make command to deploy Harbor with Helmfile"
-    cmds:
-      - make something
-
-  Make:Load_Darksite_Bundles:
-    desc: "Run Onboarder Make command to load all offline images into Harbor"
-    cmd:
-      - make something
-
-  Make:Helmfile_Install_Rancher:
-    desc: "Run Onboarder Make command to deploy Rancher with Helmfile"
-    cmds:
-      - make something
-
-  Make:Terraform_Rancher_Bootstrap_Apply:
-    desc: "Run Onboarder Make command to apply Terraform bootstrap for Rancher"
-    cmds:
-      - make something
-
-  Make:Install_Gitea:
-    desc: "Run Onboarder Make command to deploy Gitea Git server"
-    cmds:
-      - make something
-
-  Make:Install_ArgoCD:
-    desc: "Run Onboarder Make command to deploy ArgoCD GitOps platform"
-    cmds:
-      - make something
+          PLAYBOOK: "{{.TASKS_DIR}}/{{.ONBOARDER_VERSION}}/prep.yml"

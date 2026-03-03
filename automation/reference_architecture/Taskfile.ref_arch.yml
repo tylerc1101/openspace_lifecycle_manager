@@ -17,12 +17,8 @@ includes:
     taskfile: ../servers/Taskfile.servers.yml
     internal: true
 
-  Libvirt:
+  Virtualization:
     taskfile: ../libvirt/Taskfile.libvirt.yml
-    internal: true
-
-  Cockpit:
-    taskfile: ../cockpit/Taskfile.cockpit.yml
     internal: true
 
 tasks:

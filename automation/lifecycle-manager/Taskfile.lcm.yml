@@ -7,7 +7,7 @@ vars:
   DEPLOYMENT_FILE: "{{.OPENSPACE_ROOT}}/env/current/deployment.yml"
 
 tasks:
-  init:
+  Env:Init:
     desc: "Initialize environment for lifecycle management tasks"
     cmds:
       - task: banner
@@ -15,7 +15,7 @@ tasks:
           MESSAGE: "🚀 STEP: Initialize Lifecycle Management Environment"
       - ansible-playbook -i {{.DEPLOYMENT_FILE}} {{.TASKS_DIR}}/init.yml
 
-  validate:
+  Env:Validate:
     desc: "Validate deployment configuration for completeness and correctness"
     cmds:
       - task: banner
@@ -67,13 +67,13 @@ tasks:
       - ansible -i {{.DEPLOYMENT_FILE}} {{.HOSTS}} -m ping
 
   ansible-playbook:
-    #deps: 
-    #  - _ansible-vault-passfile
     internal: true
     requires:
       vars: [PLAYBOOK]
     vars:
       LIMIT: '{{.LIMIT | default ""}}'
+      TAGS: '{{.TAGS | default ""}}'
+      SKIP_TAGS: '{{.SKIP_TAGS | default ""}}'
       EXTRA_VARS: '{{.EXTRA_VARS | default ""}}'
     cmds:
       - >
@@ -82,7 +82,9 @@ tasks:
         -i {{.DEPLOYMENT_FILE}}
         {{.PLAYBOOK}}
         {{if .LIMIT}} --limit "{{.LIMIT}}" {{end}}
-        {{if .EXTRA_VARS}} --extra-vars "{{.EXTRA_VARS}}" {{end}}
+        {{if .TAGS}} --tags "{{.TAGS}}" {{end}}
+        {{if .SKIP_TAGS}} --skip-tags "{{.SKIP_TAGS}}" {{end}}
+        {{if .EXTRA_VARS}} --extra-vars '{{.EXTRA_VARS}}' {{end}}
 
   ansible-vault-passfile:
     internal: true
