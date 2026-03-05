@@ -9,7 +9,7 @@ includes:
     internal: true
 
   Onboarder_Internals:
-    taskfile: "{{.TASKS_DIR}}/{{.ONBOARDER_VERSION}}/Taskfile.{{.ONBOARDER_VERSION}}.yml"
+    taskfile: "./tasks/current/Taskfile.yml"
 
 tasks:
   Deploy:

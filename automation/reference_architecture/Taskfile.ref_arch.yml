@@ -18,7 +18,7 @@ includes:
     internal: true
 
   Virtualization:
-    taskfile: ../libvirt/Taskfile.libvirt.yml
+    taskfile: ../virtualization/Taskfile.virtualization.yml
     internal: true
 
 tasks:

@@ -19,14 +19,23 @@
       register: onboarder_image
       tags: [load]
 
-    - name: Fail if image missing
-      fail:
-        msg: "Image not found at {{ image_tar }}"
-      when: not onboarder_image.stat.exists
+    - name: Check if image is already loaded
+      command: "podman image exists {{ image_tag }}"
+      register: image_check
+      failed_when: false
+      changed_when: false
       tags: [load]
 
-    - name: Load image into Podman
-      command: "podman load -i {{ image_tar }}"
+    - name: Notify that image will be loaded
+      debug:
+        msg: "Image not found — loading image (This may take a while)..."
+      when: image_check.rc != 0
+      tags: [load]
+
+    - name: Load container image if not present
+      containers.podman.podman_load:
+        input: "{{ image_tar }}"
+      when: image_check.rc != 0
       tags: [load]
 
     # ==========================================================================
