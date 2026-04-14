@@ -1,7 +1,7 @@
 version: '3'
 
 vars:
-  TASKS_DIR: "{{.ROOT_DIR}}/tasks"
+  TASKS_DIR: "{{.TASKFILE_DIR}}/tasks"
 
 includes:
   lcm:
@@ -59,9 +59,4 @@ tasks:
   Container:Prep:
     desc: "Prepare onboarder container (configs, files, env)"
     cmds:
-      - task: lcm:banner
-        vars:
-          MESSAGE: "🚀 Prepare Onboarder container"
-      - task: lcm:ansible-playbook
-        vars:
-          PLAYBOOK: "{{.TASKS_DIR}}/{{.ONBOARDER_VERSION}}/prep.yml"
+      - task: Onboarder_Internals:Prep

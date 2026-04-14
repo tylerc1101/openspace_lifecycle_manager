@@ -61,7 +61,7 @@ cmd_init() {
   echo "Bootstrapping OpenSpace..."
   export OPENSPACE_DEPLOYMENT_FILE="$DEPLOYMENT"
 
-  task -t "$BOOT_TF" init DEPLOYMENT_FILE="$DEPLOYMENT"
+  task -t "$BOOT_TF" Env:Init DEPLOYMENT_FILE="$DEPLOYMENT"
 
   # ----- Determine env name -----
   ENV_NAME="$(extract_env_name "$DEPLOYMENT")"

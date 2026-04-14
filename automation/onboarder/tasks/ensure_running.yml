@@ -1,5 +1,5 @@
 - name: Check if onboarder container exists
-  command: "podman container exists {{ container_name }}"
+  command: "podman container exists {{ onboarder.container_name }}"
   register: container_exists
   changed_when: false
   failed_when: false
@@ -7,15 +7,15 @@
 - name: Fail if container does not exist
   fail:
     msg: >-
-      Container '{{ container_name }}' does not exist.
+      Container '{{ onboarder.container_name }}' does not exist.
       Run: task onboarder:container:run  (or deploy the stack) first.
   when: container_exists.rc != 0
 
 - name: Check if onboarder container is running
-  command: "podman inspect -f '{{ '{{.State.Running}}' }}' {{ container_name }}"
+  command: "podman inspect -f '{{ '{{.State.Running}}' }}' {{ onboarder.container_name }}"
   register: running_check
   changed_when: false
 
 - name: Start onboarder container if not running
-  command: "podman start {{ container_name }}"
+  command: "podman start {{ onboarder.container_name }}"
   when: running_check.stdout != "true"

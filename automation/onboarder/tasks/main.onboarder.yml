@@ -1,6 +1,6 @@
 ---
 - name: Manage Onboarder Container
-  hosts: onboarder
+  hosts: localhost
   gather_facts: false
   become: true
 

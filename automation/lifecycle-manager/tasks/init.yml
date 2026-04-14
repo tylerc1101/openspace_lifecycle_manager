@@ -123,3 +123,12 @@
         content: |
           initialized_at: {{ lookup('pipe','date -Is') }}
           env_name: "{{ env_name }}"
+
+    # -------------------------------------------------------------------------
+    # Setup current onboarder tasks
+    # -------------------------------------------------------------------------
+    - name: Symlink current onboarder tasks
+      file:
+        src: "{{ openspace_directory }}/automation/onboarder/tasks/{{ onboarder.tag }}"
+        dest: "{{ openspace_directory }}/automation/onboarder/tasks/current"
+        state: link

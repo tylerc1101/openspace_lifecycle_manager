@@ -57,9 +57,13 @@ all:
 
     containers:
       vars:
-        ansible_connection: community.general.podman
+        ansible_connection: containers.podman.podman
+        ansible_remote_tmp: /tmp/.ansible/tmp
+        ansible_user: root
+        ansible_become: false
       hosts:
         onboarder:
+          ansible_host: onboarder
           description: Onboarder Container for cluster provisioning
           host_type: container
 
@@ -71,7 +75,8 @@ all:
         local:
           vars:
             cluster_type: mcm
-            ansible_ssh_private_key_file: rancher_ssh_key
+            ssh_key: rancher_ssh_key
+            management_interface: enp1s0
           hosts:
             mcm1:
               ansible_host: 192.168.2.8   # connect_via: management
@@ -87,7 +92,7 @@ all:
         openspace-osms:
           vars:
             cluster_type: osms
-            ansible_ssh_private_key_file: osms_ssh_key
+            ssh_key: osms_ssh_key
           hosts:
             osms1:
               ansible_host: 192.168.2.9   # connect_via: management
@@ -103,7 +108,7 @@ all:
         openspace-osdc:
           vars:
             cluster_type: osdc
-            ansible_ssh_private_key_file: osdc_ssh_key
+            ssh_key: osdc_ssh_key
           hosts:
             osdc1:
               ansible_host: 192.168.2.16   # connect_via: management

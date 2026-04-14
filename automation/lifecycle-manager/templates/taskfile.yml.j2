@@ -9,21 +9,34 @@
 version: '3'
 
 vars:
+  OPENSPACE_DIR: "{{ openspace_directory }}"
   ONBOARDER_VERSION: "{{ onboarder.tag }}"
 
 includes:
   Lifecycle:
-    taskfile: {{ openspace_directory }}/automation/lifecycle-manager/Taskfile.lcm.yml
+    taskfile: "{{ '{{' }}.OPENSPACE_DIR{{ '}}' }}/automation/lifecycle-manager/Taskfile.lcm.yml"
+    dir: "{{ '{{' }}.OPENSPACE_DIR{{ '}}' }}/automation/lifecycle-manager"
+
   Reference:
-    taskfile: {{ openspace_directory }}/automation/reference_architecture/Taskfile.ref_arch.yml
+    taskfile: "{{ '{{' }}.OPENSPACE_DIR{{ '}}' }}/automation/reference_architecture/Taskfile.ref_arch.yml"
+    dir: "{{ '{{' }}.OPENSPACE_DIR{{ '}}' }}/automation/reference_architecture"
+
   Clusters:
-    taskfile: {{ openspace_directory }}/automation/clusters/Taskfile.clusters.yml
+    taskfile: "{{ '{{' }}.OPENSPACE_DIR{{ '}}' }}/automation/clusters/Taskfile.clusters.yml"
+    dir: "{{ '{{' }}.OPENSPACE_DIR{{ '}}' }}/automation/clusters"
+
   Onboarder:
-    taskfile: {{ openspace_directory }}/automation/onboarder/Taskfile.onboarder.yml
+    taskfile: "{{ '{{' }}.OPENSPACE_DIR{{ '}}' }}/automation/onboarder/Taskfile.onboarder.yml"
+    dir: "{{ '{{' }}.OPENSPACE_DIR{{ '}}' }}/automation/onboarder"
+
   Servers:
-    taskfile: {{ openspace_directory }}/automation/servers/Taskfile.servers.yml
+    taskfile: "{{ '{{' }}.OPENSPACE_DIR{{ '}}' }}/automation/servers/Taskfile.servers.yml"
+    dir: "{{ '{{' }}.OPENSPACE_DIR{{ '}}' }}/automation/servers"
+
   Virtualization:
-    taskfile: {{ openspace_directory }}/automation/virtualization/Taskfile.virtualization.yml
+    taskfile: "{{ '{{' }}.OPENSPACE_DIR{{ '}}' }}/automation/virtualization/Taskfile.virtualization.yml"
+    dir: "{{ '{{' }}.OPENSPACE_DIR{{ '}}' }}/automation/virtualization"
+
   Custom:
-    taskfile: {{ openspace_directory }}/env/{{ env_name }}/custom/Taskfile.yml
+    taskfile: "{{ '{{' }}.OPENSPACE_DIR{{ '}}' }}/env/{{ env_name }}/custom/Taskfile.yml"
     optional: true

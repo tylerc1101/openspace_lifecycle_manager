@@ -1,21 +1,24 @@
 - name: Prep Onboarder Container
-  hosts: "{{ target_hosts | default('localhost')}}"
+  hosts: onboarder
 
   vars:
-    cache_dir: "{{ lookup('env', 'ONBOARDER_CACHE_DIR')}}"
-    install_dir: "{{ lookup('env', 'ONBOARDER_INSTALL_DIR')}}"
-    common_dir: "{{ lookup('env', 'ONBOARDER_COMMON_DIR')}}"
-    sample_vsphere_dir: "{{ lookup('env', 'ONBOARDER_SAMPLE_VSPHERE_DIR')}}"
-
+    workspace_dir: "/docker-workspace"
+    common_dir: "{{ workspace_dir }}/config/common"
+    sample_vsphere_dir: "{{ workspace_dir }}/config/sample_vsphere"
+    onboarder_env_dir: "{{ workspace_dir }}/config/{{ env_name }}_onboarder_env"
+    cache_dir: "{{ onboarder_env_dir }}/.cache"
   
   tasks:
     - name: Ensure onboarder container is running
-      import_tasks: ../ensure_running.yml
+      containers.podman.podman_container:
+        name: "{{ onboarder.container_name }}"
+        state: started
+      delegate_to: localhost
 
     # a) Build directories
     - name: Ensure install directory exists
       file:
-        path: "{{ install_dir }}"
+        path: "{{ onboarder_env_dir }}"
         state: directory
         mode: '0755'
         owner: root
@@ -32,8 +35,8 @@
     # b) Modify Makefiles
     - name: Deploy Makefile
       template:
-        src: "{{ basekit_templates_dir }}/Makefile.j2"
-        dest: "{{ install_dir }}/Makefile"
+        src: "../templates/Makefile.j2"
+        dest: "{{ onboarder_env_dir }}/Makefile"
         owner: root
         group: root
         mode: '0644'
@@ -46,13 +49,13 @@
         backrefs: yes
       loop:
         - { regexp: '^(SSH_USERNAME\s*\?=).*',      replacement: '\1 {{ ansible_user }}' }
-        - { regexp: '^(SSH_KEY_FILE_NAME\s*\?=).*', replacement: '\1 rancher_ssh_key' }
-        - { regexp: '^(VM_NIC_INTERFACE\s*\?=).*',  replacement: '\1 enp1s0' }
+        - { regexp: '^(SSH_KEY_FILE_NAME\s*\?=).*', replacement: '\1 {{ clusters.local.ssh_key }}' }
+        - { regexp: '^(VM_NIC_INTERFACE\s*\?=).*',  replacement: '\1 {{ clusters.local.management_interface }}' }
 
     # c) Create terraform state file
     - name: Create vm-terraform.tfstate inside container
       template:
-        src: "{{ basekit_templates_dir }}/vm-terraform.tfstate.j2"
+        src: "../templates/vm-terraform.tfstate.j2"
         dest: "{{ cache_dir }}/vm-terraform.tfstate"
         owner: root
         group: root
@@ -61,7 +64,7 @@
     # d) Copy SSH Key into cache dir
     - name: Generate rancher SSH key if it doesn't exist
       community.crypto.openssh_keypair:
-        path: "{{ cache_dir }}/rancher_ssh_key"
+        path: "{{ cache_dir }}/{{ clusters.local.ssh_key }}"
         type: rsa
         size: 4096
         state: present
@@ -70,13 +73,13 @@
 
     - name: Set proper permissions on SSH private key
       ansible.builtin.file:
-        path: "{{ cache_dir }}/rancher_ssh_key"
+        path: "{{ cache_dir }}/{{ clusters.local.ssh_key }}"
         mode: '0600'
       when: ssh_key_generated.changed
 
     - name: Set proper permissions on SSH public key
       ansible.builtin.file:
-        path: "{{ cache_dir }}/rancher_ssh_key.pub"
+        path: "{{ cache_dir }}/{{ clusters.local.ssh_key }}.pub"
         mode: '0644'
       when: ssh_key_generated.changed
 

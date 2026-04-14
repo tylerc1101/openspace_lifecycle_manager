@@ -1,7 +1,7 @@
 version: '3'
 
 vars:
-  TASKS_DIR: "{{.ROOT_DIR}}/tasks"
+  TASKS_DIR: "{{.TASKFILE_DIR}}/tasks"
 
 includes:
   lcm:
@@ -9,6 +9,16 @@ includes:
     internal: true
 
 tasks:
+  Prep:
+    desc: "Prepare onboarder container (configs, files, env)"
+    cmds:
+      - task: lcm:banner
+        vars:
+          MESSAGE: "🚀 Prepare Onboarder container"
+      - task: lcm:ansible-playbook
+        vars:
+          PLAYBOOK: "{{.TASKS_DIR}}/prep.yml"
+
   Deploy:
     desc: "Deploy full MCM stack (RKE2, Harbor, Rancher, Gitea, ArgoCD)"
     cmds:

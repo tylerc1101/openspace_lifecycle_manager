@@ -1,7 +1,7 @@
 version: '3'
 
 vars:
-  TASKS_DIR: "{{.ROOT_DIR}}/tasks"
+  TASKS_DIR: "{{.TASKFILE_DIR}}/tasks"
   ANSIBLE_CFG: "{{.ROOT_DIR}}/ansible.cfg"
   OPENSPACE_ROOT: '{{ env "OPENSPACE_ROOT" | default "/opt/openspace" }}'
   DEPLOYMENT_FILE: "{{.OPENSPACE_ROOT}}/env/current/deployment.yml"

@@ -2129,7 +2129,7 @@ class OpenSpaceTUI(App):
             try:
                 log = self.query_one("#exec-log", RichLog)
                 ts = datetime.now().strftime("%H:%M:%S")
-                log.write(f"[dim]{ts}[/dim] {rich_escape(message)}")
+                log.write(Text.from_ansi(f"{ts} {message}"))
                 try:
                     self.query_one("#log-line-count", Label).update(
                         f"Lines: {log.line_count}"
