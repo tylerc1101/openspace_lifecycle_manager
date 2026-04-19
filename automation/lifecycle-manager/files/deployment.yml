@@ -12,7 +12,7 @@ all:
     osms_tooling: "1.8.x"
     
     ansible_user: kratos
-    ansible_password: kratos
+    ansible_become_password: kratos
 
     site:
       domain_name: gep1.kratos

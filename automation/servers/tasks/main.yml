@@ -8,7 +8,7 @@
 #=============================================================================
     - name: Set Hostname
       ansible.builtin.hostname:
-        name: "{{ (inventory_hostname | replace('_','-')) }}.{{ domain_name }}"
+        name: "{{ (inventory_hostname | replace('_','-')) }}.{{ site.domain_name }}"
 
     - name: Update /etc/resolv.conf with customer DNS servers
       lineinfile:
@@ -16,7 +16,7 @@
         line: "nameserver {{ item }}"
         create: yes
         state: present
-      loop: "{{ customer_dns_servers }}"
+      loop: "{{ networks.customer.dns_servers }}"
 
     - name: Create repo file
       copy:
@@ -44,31 +44,31 @@
         state: started
 
 #=============================================================================
-# Mangement Node Configuration Only
+# Management Node Configuration Only
 #=============================================================================
-    - name: Run MCM Node Configuration Tasks
-      include_tasks: mgmt.yml
+    - name: Run Management Node Configuration Tasks
+      include_tasks: mgmt-tasks.yml
       when: "'management' in group_names"
 
 #=============================================================================
 # MCM Node Configuration Only
 #=============================================================================
     - name: Run MCM Node Configuration Tasks
-      include_tasks: mcm.yml
+      include_tasks: mcm-tasks.yml
       when: "'mcm-clusters' in group_names"
     
 #=============================================================================
 # OSMS Node Configuration Only
 #============================================================================= 
     - name: Run OSMS Node Configuration Tasks
-      include_tasks: osms.yml
+      include_tasks: osms-tasks.yml
       when: "'osms-clusters' in group_names"
 
 #=============================================================================
 # OSDC Node Configuration Only
 #=============================================================================
     - name: Run OSDC Node Configuration Tasks
-      include_tasks: osdc.yml
+      include_tasks: osdc-tasks.yml
       when: "'osdc-clusters' in group_names"
 
 #=============================================================================
