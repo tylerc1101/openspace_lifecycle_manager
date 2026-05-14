@@ -1,0 +1,61 @@
+---
+- name: Generate OPNsense config from template
+  hosts: localhost, mgmt-kvm
+  gather_facts: false
+  become: true
+
+  vars:
+    template_file: "../templates/config_template.xml.j2"
+    output_file: "/var/lib/libvirt/config/vm_config/opnsense/config.xml"
+    opnsense_dir: /var/lib/libvirt/config/vm_config/opnsense
+
+    wan_ip: "{{ opnsense.wan_ip }}"
+    wan_gateway: "{{ networks.customer.gateway }}"
+    wan_subnet: "{{ networks.customer.cidr.split('/')[-1] }}"
+
+    ntp_timeservers: "{{ services.ntp.servers | map('string') | join(' ') }}"
+    ntp_prefer: "{{ services.ntp.servers | first | string }}"
+
+    opnsense_hostname: "opnsense"
+    wan_interface: "vtnet1"
+    lan_interface: "vtnet0"
+    opt1_interface: "vtnet2"
+
+  tasks:
+    - name: Ensure OPNsense config directory exists
+      ansible.builtin.file:
+        path: "{{ opnsense_dir }}"
+        state: directory
+        mode: "0755"
+      delegate_to: mgmt-kvm
+
+    - name: Render OPNsense config from template
+      ansible.builtin.template:
+        src: "{{ template_file }}"
+        dest: "{{ output_file }}"
+        mode: "0644"
+      delegate_to: mgmt-kvm
+
+    - name: Copy install script
+      ansible.builtin.copy:
+        src: install_opnsense.sh
+        dest: "{{ opnsense_dir }}/install_opnsense.sh"
+        mode: "0755"
+      delegate_to: mgmt-kvm
+
+    - name: Set SELinux file context for this nonstandard libvirt path
+      community.general.sefcontext:
+        target: "{{ opnsense_dir }}(/.*)?"
+        setype: svirt_image_t
+        state: present
+      delegate_to: mgmt-kvm
+
+    - name: Restore SELinux contexts
+      ansible.builtin.command: restorecon -Rv "{{ opnsense_dir }}"
+      register: rc_restore
+      changed_when: rc_restore.rc == 0
+      delegate_to: mgmt-kvm
+
+    - name: Run install script
+      ansible.builtin.command: "{{ opnsense_dir }}/install_opnsense.sh"
+      delegate_to: mgmt-kvm

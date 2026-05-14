@@ -50,6 +50,55 @@
       include_tasks: mgmt-tasks.yml
       when: "'management' in group_names"
 
+    - name: Install Cockpit on Management Server
+      block:
+        - name: Install required cockpit packages
+          ansible.builtin.yum:
+            name:
+              - "@Headless Management"
+              - cockpit
+              - cockpit-machines
+            state: present
+            disable_gpg_check: yes
+
+        - name: Ensure cockpit socket started/enabled (don't fail if unit missing)
+          ansible.builtin.systemd:
+            name: cockpit.socket
+            state: started
+            enabled: true
+          failed_when: false
+      when: install_cockpit | default(false)
+
+    - name: Libvirt setup
+      block:
+        - name: Install required libvirt/virtualization packages
+          ansible.builtin.yum:
+            name:
+              - "@Virtualization Platform"
+              - "@Development Tools"
+              - virt-install
+              - qemu-img
+              - libcdio
+              - libguestfs
+              - libguestfs-tools
+              - guestfs-tools
+              - gcc
+              - openssl-devel
+              - libffi-devel
+              - zlib-devel
+              - xz-devel
+              - readline-devel
+            state: present
+            disable_gpg_check: yes
+
+        - name: Ensure libvirt daemon started/enabled (don't fail if unit missing)
+          ansible.builtin.systemd:
+            name: libvirtd
+            state: started
+            enabled: true
+          failed_when: false
+      when: install_libvirt | default(false)
+
 #=============================================================================
 # MCM Node Configuration Only
 #=============================================================================
@@ -76,9 +125,6 @@
 #=============================================================================
     - name: Run Cluster Node Configuration Tasks
       include_tasks: cluster-tasks.yml
-      when: >
-        "'mcm-clusters' in group_names" or
-        "'osms-clusters' in group_names" or
-        "'osdc-clusters' in group_names"
+      when: cluster_type is defined and cluster_type in ['mcm', 'osms', 'osdc']
 
 

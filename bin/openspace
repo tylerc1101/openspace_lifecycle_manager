@@ -13,17 +13,17 @@ Usage:
   openspace
       Launch TUI (requires active environment)
 
-  openspace init --deployment <file>
+  openspace init --deployment <file> --onboarder <onboarder.tar.gz>
       Bootstrap new environment
 
 Options:
   --deployment <file>   Path to deployment.yml (required)
+  --onboarder <file>    Path to onboarder tarball (required)
   -h, --help            Show help
 EOF
 }
 
 extract_env_name() {
-  # Replace with yq if you prefer
   grep '^env_name:' "$1" | awk '{print $2}'
 }
 
@@ -31,11 +31,16 @@ cmd_init() {
   shift || true
 
   local DEPLOYMENT=""
+  local ONBOARDER=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --deployment)
         DEPLOYMENT="${2:-}"
+        shift 2
+        ;;
+      --onboarder)
+        ONBOARDER="${2:-}"
         shift 2
         ;;
       -h|--help)

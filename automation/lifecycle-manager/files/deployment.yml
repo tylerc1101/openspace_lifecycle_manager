@@ -38,7 +38,7 @@ all:
         cidr: 192.168.0.0/24
         gateway: 192.168.0.1
 
-    opensense:
+    opnsense:
       mgmt_ip: 192.168.2.1
       wan_ip: 10.243.77.71
 
@@ -53,19 +53,9 @@ all:
           ansible_host: 10.243.77.70   # connect_via: customer
           description: Primary Management Host
           host_type: baremetal
+          install_cockpit: true
+          install_libvirt: true
           priority: primary
-
-    containers:
-      vars:
-        ansible_connection: containers.podman.podman
-        ansible_remote_tmp: /tmp/.ansible/tmp
-        ansible_user: root
-        ansible_become: false
-      hosts:
-        onboarder:
-          ansible_host: onboarder
-          description: Onboarder Container for cluster provisioning
-          host_type: container
 
     # -------------------------------------------------------------------------
     # CLUSTERS
@@ -80,7 +70,6 @@ all:
           hosts:
             mcm1:
               ansible_host: 192.168.2.8   # connect_via: management
-              description: MCM node
               host_type: libvirt_vm
               vm:
                 memory_mb: 16384
@@ -93,10 +82,10 @@ all:
           vars:
             cluster_type: osms
             ssh_key: osms_ssh_key
+            management_interface: enp1s0
           hosts:
             osms1:
               ansible_host: 192.168.2.9   # connect_via: management
-              description: OSMS node
               host_type: libvirt_vm
               vm:
                 memory_mb: 32768
@@ -112,9 +101,7 @@ all:
           hosts:
             osdc1:
               ansible_host: 192.168.2.16   # connect_via: management
-              description: OSDC node
               host_type: baremetal
             osdc2:
               ansible_host: 192.168.2.17   # connect_via: management
-              description: OSDC node
               host_type: baremetal

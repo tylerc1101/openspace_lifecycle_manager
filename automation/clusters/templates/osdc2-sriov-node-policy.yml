@@ -1,11 +1,11 @@
 apiVersion: sriovnetwork.openshift.io/v1
 kind: SriovNetworkNodePolicy
 metadata:
-  name: policy-osdc-2
+  name: policy-osdc-4
   namespace: cattle-sriov-system
 spec:
   nodeSelector:
-    kubernetes.io/hostname: osdc-2
+    kubernetes.io/hostname: osdc4.gep2.kratos
   resourceName: intelnics
   mtu: 9000
   numVfs: 64
@@ -13,6 +13,6 @@ spec:
     deviceID: "1593"
     vendor: "8086"
     rootDevices:
-    - "0000:0d:00.3"
-    - "0000:22:00.2"
+    - "0000:b5:00.3"
+    - "0000:22:00.3"
   deviceType: netdevice
